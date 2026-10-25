@@ -178,6 +178,7 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .tile .num.flash { animation: flash 2s ease-out; }
 @media (max-width: 40rem) { .refresh { align-items: flex-start; } }
 @media (max-width: 40rem) { .tiles { grid-template-columns: 1fr 1fr; gap: 10px; } .tiles .tile:last-child { grid-column: 1 / -1; } .ico { display: none; } .card, .tile { padding: 18px; border-radius: 18px; } .card > .note { margin-inline: -18px; padding-inline: 18px; } }
+body.all-accounts #t-next-tile, body.all-accounts section.card { display: none; }
 </style>
 </head>
 <body>
@@ -214,7 +215,7 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
     <div class="tile"><div class="lbl">Total views</div><div class="num" id="t-views">—</div><div class="sub">All live posts</div></div>
     <div class="tile"><div class="lbl">Total likes</div><div class="num" id="t-likes">—</div><div class="sub"><span id="t-comments">—</span> comments</div></div>
     <div class="tile"><div class="lbl">Followers</div><div class="num" id="t-followers">—</div><div class="sub"><span id="t-accounts">—</span></div></div>
-    <div class="tile"><div class="lbl">Next post</div><div class="num" id="t-next" style="font-size:1.35rem">—</div><div class="sub" id="t-next-title">—</div></div>
+    <div class="tile" id="t-next-tile"><div class="lbl">Next post</div><div class="num" id="t-next" style="font-size:1.35rem">—</div><div class="sub" id="t-next-title">—</div></div>
   </section>
 
   <section class="card" id="rewards">
@@ -505,7 +506,8 @@ function drawRefresh() {
   sub.textContent = last ? 'Last ' + ago(latest) : 'Not updated yet';
 }
 
-const draw = () => { drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawInsights(); drawTable(); drawContent(); };
+// All accounts is a summary: just the four totals. Per-account detail shows once one account is picked.
+const draw = () => { document.body.classList.toggle('all-accounts', pick() === ALL); drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawInsights(); drawTable(); drawContent(); };
 
 const btn = document.getElementById('acct-btn'), panel = document.getElementById('acct-panel');
 const open = (o) => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); };
