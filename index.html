@@ -108,6 +108,10 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 .pill.live { color: var(--ok); border-color: var(--line); background: rgb(34 197 94 / .08); }
 .pill.sched { color: var(--muted); }
+.refresh { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.r-sub { font-size: .75rem; color: var(--muted); padding-right: 4px; }
+.pill.wait { color: var(--warn); background: rgb(240 166 64 / .08); }
+@media (max-width: 40rem) { .refresh { align-items: flex-start; } }
 @media (max-width: 40rem) { .tiles { grid-template-columns: 1fr 1fr; gap: 10px; } .tiles .tile:last-child { grid-column: 1 / -1; } .ico { display: none; } .card, .tile { padding: 18px; border-radius: 18px; } .card > .note { margin-inline: -18px; padding-inline: 18px; } }
 </style>
 </head>
@@ -127,6 +131,7 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
     </div>
   </div>
   <nav class="nav" aria-label="Sections"><a href="#rewards">Rewards</a><a href="#genres">Genres</a><a href="#views">Views</a><a href="#schedule">Schedule</a></nav>
+  <div class="refresh" id="refresh" role="status"><span class="pill live" id="r-pill">Checking…</span><span class="r-sub" id="r-sub"></span></div>
   </div>
 
   <header class="head">
@@ -134,7 +139,6 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
     <div>
     <h1>Content HQ</h1>
     <p class="take" id="take">Loading…</p>
-    <div class="updated" id="updated"></div>
     </div>
   </header>
 
@@ -223,7 +227,6 @@ function drawTiles() {
   set('t-next', next ? when(next.scheduled_at) : '—'); set('t-next-title', next ? next.title : 'Nothing scheduled');
   const who = acct === ALL ? `Across ${accts.length} account${accts.length === 1 ? '' : 's'}, ` : `On ${acct}, `;
   set('take', `${who}${live.length} of ${ps.length} posts are live with ${fmt(sum('views'))} views. ` + (next ? `Next up: "${next.title}" on ${when(next.scheduled_at)}.` : 'Nothing else is scheduled. Time for the next batch.'));
-  set('updated', meta.updated_at ? `Stats ${ago(meta.updated_at)} · refreshes every hour` : '');
 }
 
 function drawGoals() {
@@ -285,7 +288,18 @@ function drawTable() {
   });
 }
 
-const draw = () => { drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawTable(); };
+// GitHub runs the updater at :17 past each hour (often a few minutes late).
+function drawRefresh() {
+  const pill = document.getElementById('r-pill'), sub = document.getElementById('r-sub');
+  const last = meta.updated_at ? new Date(meta.updated_at) : null;
+  const next = new Date(last || Date.now()); next.setUTCMinutes(17, 0, 0); if (next <= (last || new Date())) next.setUTCHours(next.getUTCHours() + 1);
+  const mins = Math.ceil((next - Date.now()) / 60000);
+  pill.className = 'pill ' + (mins > 0 ? 'live' : 'wait');
+  pill.textContent = mins > 0 ? `Next refresh in ${mins} min` : 'Refreshing now…';
+  sub.textContent = last ? 'Last ' + ago(meta.updated_at) : 'Not updated yet';
+}
+
+const draw = () => { drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawTable(); };
 
 const btn = document.getElementById('acct-btn'), panel = document.getElementById('acct-panel');
 const open = (o) => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); };
@@ -304,7 +318,8 @@ async function load() {
   catch (e) { document.getElementById('take').textContent = "Couldn't load the stats files. Try refreshing the page."; }
 }
 load();
-setInterval(load, 5 * 60 * 1000);
+setInterval(load, 2 * 60 * 1000);
+setInterval(drawRefresh, 30 * 1000);
 </script>
 </body>
 </html>
