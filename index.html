@@ -143,6 +143,12 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .acct-restore { color: var(--muted); }
 .acct-how { margin: 6px 4px 2px !important; }
 .pending { font-size: .8rem; color: var(--warn); padding: 6px 10px; }
+.acct-tt { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: .9rem; color: #000; background: #fff; text-decoration: none; border-radius: 10px; padding: 9px 12px; margin: 2px 4px 8px; }
+.acct-tt:hover { background: #e4e4e7; }
+.acct-manage button { display: block; width: 100%; text-align: left; font: inherit; font-size: .88rem; color: #f87171; background: none; border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer; }
+.acct-manage button:hover { background: var(--track); }
+.st.ok { color: var(--ok); }
+.tt-msg { margin: 6px 0 0; font-size: .85rem; color: var(--ok); } .tt-msg.bad { color: var(--warn); }
 @keyframes flash { from { color: var(--ok); } to { color: var(--fg); } }
 .tile .num.flash { animation: flash 2s ease-out; }
 @media (max-width: 40rem) { .refresh { align-items: flex-start; } }
@@ -159,14 +165,15 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
     <div class="acct-panel" id="acct-panel" hidden>
       <div id="acct-list"></div>
       <div class="acct-foot">
-        <button type="button" class="acct-add" id="acct-add-btn">＋ Add account</button>
+        <a class="acct-tt" href="/auth/tiktok/start">Sign in with TikTok</a>
+        <button type="button" class="acct-add" id="acct-add-btn">＋ Add account by handle</button>
         <form class="acct-form" id="acct-form" hidden>
           <label>TikTok handle<input id="f-handle" placeholder="@yourhandle" autocomplete="off" autocapitalize="off" spellcheck="false" required pattern="@?[A-Za-z0-9._]{2,24}"></label>
           <label>Niche <span class="s">(optional)</span><input id="f-niche" placeholder="e.g. Roblox story time" maxlength="60"></label>
           <button type="submit" class="acct-go">Add account</button>
         </form>
         <div id="acct-removed"></div>
-        <p class="acct-how">Changes open a short request on GitHub. Tap <b>Submit</b> there and the dashboard updates in about a minute. Sign in to TikTok itself in the TikTok app or Studio; this page never holds passwords.</p>
+        <p class="acct-how"><b>Sign in with TikTok</b> adds an account with official stats; TikTok handles the password, this page never sees it. Adding by handle opens a short request on GitHub: tap <b>Submit</b> there and the dashboard updates in about a minute.</p>
       </div>
     </div>
   </div>
@@ -179,6 +186,7 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
     <div>
     <h1>Content HQ</h1>
     <p class="take" id="take">Loading…</p>
+    <p class="tt-msg" id="tt-msg" hidden></p>
     </div>
   </header>
 
@@ -229,12 +237,14 @@ const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
 let accounts = [], posts = [], meta = {};
+let base = { accounts: [], posts: [] }, tt = null;
 let current = (() => { try { return localStorage.getItem('hq-account') || ALL; } catch { return ALL; } })();
 
 const avatar = (a, size) => {
   const s = el('span', 'av'); s.style.width = s.style.height = size + 'px';
   // A background image always fills the circle without stretching, unlike an <img> inside a flex item on iOS.
-  if (a && a.avatar) s.style.backgroundImage = `url("${asset(a.avatar)}?v=${encodeURIComponent(a.as_of || '')}")`;
+  const src = a && (a.avatar ? `${asset(a.avatar)}?v=${encodeURIComponent(a.as_of || '')}` : a.avatar_url);
+  if (src) s.style.backgroundImage = `url("${src}")`;
   else { s.style.fontSize = Math.round(size * .45) + 'px'; s.textContent = a ? (a.account || '?').replace('@', '')[0].toUpperCase() : '∑'; }
   return s;
 };
@@ -264,13 +274,21 @@ function drawPicker() {
     const m = el('div', 'acct-manage'); const link = (text, href, cls) => { const a = el('a', cls, text); a.href = href; a.target = '_blank'; a.rel = 'noopener'; m.appendChild(a); };
     link('Open profile on TikTok ↗', `https://www.tiktok.com/${key}`);
     link('Open TikTok Studio ↗', 'https://www.tiktok.com/tiktokstudio');
+    if (rec.open_id) {
+      const f = el('form'); f.method = 'post'; f.action = '/auth/tiktok/disconnect';
+      const id = el('input'); id.type = 'hidden'; id.name = 'open_id'; id.value = rec.open_id;
+      f.append(id, el('button', null, 'Disconnect TikTok sign-in'));
+      f.addEventListener('submit', (e) => { if (!confirm(`Disconnect ${key}? The dashboard goes back to reading its public page.`)) e.preventDefault(); });
+      if (rec.connected === 'reconnect') link('Sign in with TikTok again', '/auth/tiktok/start');
+      m.appendChild(f);
+    } else link('Sign in with TikTok for official stats', '/auth/tiktok/start');
     link('Remove from dashboard', issueUrl('remove', key), 'danger');
     return [row, m];
   };
   const pend = loadPending().filter(p => !accounts.some(a => a.account.toLowerCase() === p.handle.toLowerCase() && (a.tracking === 'removed') === (p.action === 'remove')) && Date.now() - p.at < 15 * 60000);
   savePending(pend);
   list.replaceChildren(...item(ALL, null, 'All accounts', `${tracked().length} tracked`, '', false),
-    ...tracked().flatMap(a => { const bad = a.last_update_status && !['ok', 'pending'].includes(a.last_update_status); return item(a.account, a, a.account, ['TikTok', a.niche].filter(Boolean).join(' · '), bad ? "couldn't read" : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
+    ...tracked().flatMap(a => { const bad = a.connected === 'reconnect' || (a.last_update_status && !['ok', 'pending'].includes(a.last_update_status)); return item(a.account, a, a.account, [a.open_id ? 'TikTok · signed in' : 'TikTok', a.niche].filter(Boolean).join(' · '), a.connected === 'reconnect' ? 'sign in again' : bad ? "couldn't read" : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
     ...pend.map(p => el('div', 'pending', `${p.action === 'add' ? 'Adding' : p.action === 'remove' ? 'Removing' : 'Restoring'} ${p.handle}… shows here about a minute after you submit on GitHub`)));
   const removed = accounts.filter(a => a.tracking === 'removed'), rbox = document.getElementById('acct-removed');
   rbox.replaceChildren(...(removed.length ? [el('div', 'acct-removed-h', 'Removed accounts')] : []), ...removed.map(a => { const r = el('a', 'acct-restore', `Restore ${a.account}`); r.href = issueUrl('restore', a.account); r.target = '_blank'; r.rel = 'noopener'; r.dataset.pend = 'restore ' + a.account; return r; }));
@@ -353,12 +371,13 @@ function drawTable() {
 // The updater refreshes every 10 minutes after the last update (see .github/workflows/update.yml).
 function drawRefresh() {
   const pill = document.getElementById('r-pill'), sub = document.getElementById('r-sub');
-  const last = meta.updated_at ? new Date(meta.updated_at) : null;
+  const latest = [meta.updated_at, tt && tt.updated_at].filter(Boolean).sort().pop();
+  const last = latest ? new Date(latest) : null;
   const mins = last ? Math.ceil((last.getTime() + 10 * 60000 - Date.now()) / 60000) : 0;
   const late = mins < -5;
   pill.className = 'pill ' + (late ? 'wait' : 'live');
   pill.textContent = mins > 0 ? `Next refresh in ${mins} min` : late ? 'Update delayed' : 'Refreshing now…';
-  sub.textContent = last ? 'Last ' + ago(meta.updated_at) : 'Not updated yet';
+  sub.textContent = last ? 'Last ' + ago(latest) : 'Not updated yet';
 }
 
 const draw = () => { drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawTable(); };
@@ -401,18 +420,48 @@ const get = (f) => ON_PAGES ? local(f)
   : fetch(`https://api.github.com/repos/${REPO}/contents/data/${f}?ref=main`, { cache: 'no-cache', headers: { Accept: 'application/vnd.github.raw+json' } })
       .then(r => { if (!r.ok) throw new Error(f); return r.json(); }).catch(() => local(f));
 const asset = (path) => ON_PAGES ? path : `https://raw.githubusercontent.com/${REPO}/main/${path}`;
+// Accounts signed in with TikTok get official numbers from src/worker.js, laid over the public-page ones.
+const getTT = () => ON_PAGES ? Promise.resolve(null) : fetch('/api/tiktok', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+function merge() {
+  accounts = base.accounts.map(a => ({ ...a })); posts = base.posts.map(p => ({ ...p }));
+  if (!tt) return;
+  tt.accounts.filter(t => t.account).forEach(t => {
+    let a = accounts.find(x => x.account.toLowerCase() === t.account.toLowerCase());
+    if (!a) { a = { platform: 'tiktok', account: t.account, niche: '', tracking: 'active' }; accounts.push(a); }
+    Object.assign(a, { open_id: t.open_id, connected: t.status, avatar_url: t.avatar_url });
+    if (t.status === 'ok') Object.assign(a, { followers: t.followers, following: t.following, profile_likes: t.profile_likes, as_of: t.as_of, last_update_status: 'ok' });
+  });
+  posts.forEach(p => { const v = tt.videos[((p.url || '').match(/video\/(\d+)/) || [])[1]]; if (v) Object.assign(p, { views: v.views, likes: v.likes, comments: v.comments, shares: v.shares, last_error: null }); });
+}
+const flash = () => document.querySelectorAll('.tile .num').forEach(n => { n.classList.remove('flash'); void n.offsetWidth; n.classList.add('flash'); });
 async function load() {
   try {
     const first = !meta.updated_at;
-    [accounts, posts, meta] = await Promise.all([get('accounts.json'), get('posts.json'), get('meta.json')]); draw();
-    if (!first) document.querySelectorAll('.tile .num').forEach(n => { n.classList.remove('flash'); void n.offsetWidth; n.classList.add('flash'); });
+    const [a, p, m, t] = await Promise.all([get('accounts.json'), get('posts.json'), get('meta.json'), getTT()]);
+    base = { accounts: a, posts: p }; meta = m; if (t) tt = t; merge(); draw();
+    if (!first) flash();
   } catch (e) { if (!meta.updated_at) document.getElementById('take').textContent = "Couldn't load the stats files. Try refreshing the page."; }
 }
 // Poll the tiny meta.json and pull the full data only when a new update has landed.
 async function check() {
   if (document.hidden) return;
-  try { const m = await get('meta.json'); if (m.updated_at !== meta.updated_at) await load(); } catch {}
+  try {
+    const [m, t] = await Promise.all([get('meta.json'), getTT()]);
+    if (m.updated_at !== meta.updated_at) await load();
+    else if (t && t.updated_at !== (tt && tt.updated_at)) { tt = t; merge(); draw(); flash(); }
+  } catch {}
 }
+// Result of a TikTok sign-in round trip (see src/worker.js), shown once.
+(() => {
+  const q = new URLSearchParams(location.search), box = document.getElementById('tt-msg');
+  const msg = q.has('connected') ? `Signed in as ${q.get('connected') || 'your TikTok'}. Official stats now refresh every 10 minutes.`
+    : q.has('disconnected') ? 'Disconnected from TikTok.'
+    : q.get('error') === 'state' ? 'That TikTok sign-in expired. Try again.'
+    : q.has('error') ? `TikTok sign-in didn't finish (${q.get('error')}).` : '';
+  if (!msg) return;
+  box.textContent = msg; box.hidden = false; box.classList.toggle('bad', q.has('error'));
+  history.replaceState(null, '', location.pathname);
+})();
 load();
 setInterval(check, 30 * 1000);
 setInterval(drawRefresh, 30 * 1000);

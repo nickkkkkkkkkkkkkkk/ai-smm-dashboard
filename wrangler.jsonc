@@ -1,6 +1,11 @@
-// Cloudflare deploy config: serves the dashboard as static files.
+// Cloudflare deploy config: serves the dashboard as static files, plus src/worker.js for
+// Sign in with TikTok (/auth/*, /api/*). The KV namespace is created on the first deploy.
 {
   "name": "ai-smm-dashboard",
+  "main": "src/worker.js",
   "compatibility_date": "2025-09-01",
-  "assets": { "directory": "." }
+  "assets": { "directory": "." },
+  "kv_namespaces": [{ "binding": "HQ" }],
+  "triggers": { "crons": ["*/10 * * * *"] },
+  "vars": { "ACCESS_TEAM": "snowy-forest-7c54.cloudflareaccess.com" }
 }
