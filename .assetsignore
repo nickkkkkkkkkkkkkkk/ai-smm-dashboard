@@ -11,3 +11,5 @@ node_modules/**
 src
 package.json
 package-lock.json
+terms.html
+privacy.html
