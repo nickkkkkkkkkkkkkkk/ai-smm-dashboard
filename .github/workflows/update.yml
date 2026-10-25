@@ -1,12 +1,16 @@
 name: Update stats
 
+# GitHub's cron is unreliable (scheduled runs can be skipped for hours), so one
+# run loops for ~5.5 hours refreshing every 10 minutes, then starts the next run.
+# The cron entries only restart the loop if it ever stops.
 on:
   schedule:
-    - cron: "3-59/10 * * * *"   # every 10 min at :03, :13, ... (Pages allows ~10 deploys/hour)
-  workflow_dispatch:        # "Run workflow" button for a manual refresh
+    - cron: "7,37 * * * *"
+  workflow_dispatch:        # "Run workflow" button: (re)starts the loop with an immediate refresh
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: update-stats
@@ -15,23 +19,30 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -U "yt-dlp[curl-cffi]" requests
-      - run: python scripts/update.py
-      - name: Commit new numbers
+      - name: Refresh every 10 minutes
         run: |
           git config user.name "stats-bot"
           git config user.email "stats-bot@users.noreply.github.com"
-          git add data
-          if git diff --cached --quiet; then
-            echo "No changes"
-          else
-            git commit -m "Update stats"
-            git pull --rebase -q
-            git push
-          fi
+          end=$((SECONDS + 330 * 60))
+          while [ $SECONDS -lt $end ]; do
+            git pull --rebase -q || true
+            python scripts/update.py || echo "update failed"
+            git add data
+            if ! git diff --cached --quiet; then
+              git commit -qm "Update stats"
+              git pull --rebase -q && git push -q || echo "push failed"
+            fi
+            sleep 600
+          done
+      - name: Start the next loop
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run update.yml --ref main
