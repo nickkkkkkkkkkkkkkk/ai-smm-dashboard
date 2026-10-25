@@ -7,5 +7,6 @@
   "assets": { "directory": "." },
   "kv_namespaces": [{ "binding": "HQ" }],
   "triggers": { "crons": ["*/10 * * * *"] },
-  "vars": { "ACCESS_TEAM": "snowy-forest-7c54.cloudflareaccess.com" }
+  // The TikTok client key is public (it appears in the login link); the client secret is a Worker secret.
+  "vars": { "ACCESS_TEAM": "snowy-forest-7c54.cloudflareaccess.com", "TIKTOK_CLIENT_KEY": "sbawo3ktwxiv6bgd85" }
 }
