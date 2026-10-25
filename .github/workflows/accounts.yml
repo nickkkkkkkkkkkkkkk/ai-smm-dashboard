@@ -1,0 +1,47 @@
+name: Manage accounts
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: manage-accounts
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    # Only the repo owner's "[account] ..." issues change anything.
+    if: startsWith(github.event.issue.title, '[account]') && github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -U "yt-dlp[curl-cffi]" requests
+      - id: acct
+        run: python scripts/accounts.py
+        env:
+          TITLE: ${{ github.event.issue.title }}
+          BODY: ${{ github.event.issue.body }}
+      - run: python scripts/update.py
+      - name: Commit and close the request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MSG: ${{ steps.acct.outputs.msg }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          git config user.name "stats-bot"
+          git config user.email "stats-bot@users.noreply.github.com"
+          git add data
+          if ! git diff --cached --quiet; then
+            git commit -m "Accounts: $MSG"
+            git pull --rebase -q
+            git push
+          fi
+          gh issue close "$ISSUE" --comment "$MSG"
