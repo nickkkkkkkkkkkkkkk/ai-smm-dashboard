@@ -325,8 +325,11 @@ function drawPicker() {
       f.addEventListener('submit', (e) => { if (!confirm(`Disconnect ${key}? The dashboard goes back to reading its public page.`)) e.preventDefault(); });
       if (rec.connected === 'reconnect') link('Sign in with TikTok again', '/auth/tiktok/start');
       m.appendChild(f);
-    } else link('Sign in with TikTok for official stats', '/auth/tiktok/start');
-    link('Remove from dashboard', issueUrl('remove', key), 'danger');
+    } else {
+      link('Sign in with TikTok for official stats', '/auth/tiktok/start');
+      // A signed-in account always shows, so it is removed by disconnecting instead.
+      link('Remove from dashboard', issueUrl('remove', key), 'danger');
+    }
     return [row, m];
   };
   const pend = loadPending().filter(p => !accounts.some(a => a.account.toLowerCase() === p.handle.toLowerCase() && (a.tracking === 'removed') === (p.action === 'remove')) && Date.now() - p.at < 15 * 60000);
@@ -562,7 +565,8 @@ function merge() {
   tt.accounts.filter(t => t.account).forEach(t => {
     let a = accounts.find(x => x.account.toLowerCase() === t.account.toLowerCase());
     if (!a) { a = { platform: 'tiktok', account: t.account, niche: '', tracking: 'active' }; accounts.push(a); }
-    Object.assign(a, { open_id: t.open_id, connected: t.status, avatar_url: t.avatar_url });
+    // Signing in means "track this account", even if it was removed from the list before.
+    Object.assign(a, { open_id: t.open_id, connected: t.status, avatar_url: t.avatar_url, tracking: 'active' });
     if (t.status === 'ok') Object.assign(a, { followers: t.followers, following: t.following, profile_likes: t.profile_likes, as_of: t.as_of, last_update_status: 'ok' });
   });
   posts.forEach(p => { const v = tt.videos[((p.url || '').match(/video\/(\d+)/) || [])[1]]; if (v) Object.assign(p, { views: v.views, likes: v.likes, comments: v.comments, shares: v.shares, last_error: null }); });
