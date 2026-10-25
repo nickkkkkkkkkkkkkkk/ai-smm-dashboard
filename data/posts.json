@@ -8,12 +8,12 @@
     "caption_question": "Would you have let him out?",
     "scheduled_at": "2026-10-25T03:08:00-04:00",
     "status": "Live",
-    "views": 2256,
-    "likes": 309,
+    "views": 2335,
+    "likes": 331,
     "comments": 4,
     "url": "https://www.tiktok.com/@nickblox40/video/7700498619937328398",
     "genre": "Revenge",
-    "as_of": "2026-10-25T15:59:00Z"
+    "as_of": "2026-10-25T16:09:04Z"
   },
   {
     "platform": "tiktok",
@@ -23,12 +23,13 @@
     "game": "Obby",
     "caption_question": "Who were the other three?",
     "scheduled_at": "2026-10-25T12:00:00-04:00",
-    "status": "Scheduled",
-    "views": 0,
+    "status": "Live",
+    "views": 1,
     "likes": 0,
     "comments": 0,
     "url": "https://www.tiktok.com/@nickblox40/video/7700499496899251470",
-    "genre": "Horror"
+    "genre": "Horror",
+    "as_of": "2026-10-25T16:09:04Z"
   },
   {
     "platform": "tiktok",
