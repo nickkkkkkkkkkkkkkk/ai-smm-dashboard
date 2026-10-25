@@ -344,14 +344,14 @@ function drawTable() {
   });
 }
 
-// GitHub runs the updater every 10 minutes at :03, :13, ... (often a few minutes late).
+// The updater refreshes every 10 minutes after the last update (see .github/workflows/update.yml).
 function drawRefresh() {
   const pill = document.getElementById('r-pill'), sub = document.getElementById('r-sub');
   const last = meta.updated_at ? new Date(meta.updated_at) : null;
-  const next = new Date(); next.setUTCSeconds(0, 0); next.setUTCMinutes(next.getUTCMinutes() + ((13 - next.getUTCMinutes() % 10) % 10 || 10));
-  const mins = Math.max(1, Math.ceil((next - Date.now()) / 60000));
-  pill.className = 'pill live';
-  pill.textContent = `Next refresh in ${mins} min`;
+  const mins = last ? Math.ceil((last.getTime() + 10 * 60000 - Date.now()) / 60000) : 0;
+  const late = mins < -5;
+  pill.className = 'pill ' + (late ? 'wait' : 'live');
+  pill.textContent = mins > 0 ? `Next refresh in ${mins} min` : late ? 'Update delayed' : 'Refreshing now…';
   sub.textContent = last ? 'Last ' + ago(meta.updated_at) : 'Not updated yet';
 }
 
