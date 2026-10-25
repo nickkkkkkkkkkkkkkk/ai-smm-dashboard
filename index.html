@@ -91,8 +91,10 @@ body { font-size: 15px; letter-spacing: .005em; }
 .wrap { max-width: 1060px; gap: 24px; padding-block: max(28px, calc(env(safe-area-inset-top, 0px) + 12px)) max(64px, env(safe-area-inset-bottom, 0px)); }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .nav { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 6px; overflow-x: auto; max-width: 100%; }
-.nav a { color: var(--fg); text-decoration: none; font-weight: 600; font-size: .92rem; padding: 8px 14px; border-radius: 11px; white-space: nowrap; }
-.nav a:hover { background: var(--panel-2); }
+.nav a, .nav button { color: var(--fg); text-decoration: none; font: inherit; font-weight: 600; font-size: .92rem; padding: 8px 14px; border-radius: 11px; white-space: nowrap; background: none; border: 0; cursor: pointer; }
+.nav a:hover, .nav button:hover { background: var(--panel-2); }
+.nav a[aria-current="page"] { background: var(--accent); color: #fff; }
+.nav .nav-test { color: var(--muted); cursor: default; }
 .head { display: flex; align-items: flex-start; gap: 14px; }
 .head .ico { margin-top: 2px; }
 .ico { width: 46px; height: 46px; border-radius: 50%; background: var(--panel-2); display: inline-flex; align-items: center; justify-content: center; flex: none; color: var(--muted); }
@@ -149,6 +151,20 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .acct-manage button:hover { background: var(--track); }
 .st.ok { color: var(--ok); }
 .tt-msg { margin: 6px 0 0; font-size: .85rem; color: var(--ok); } .tt-msg.bad { color: var(--warn); }
+/* content page */
+[hidden] { display: none !important; }
+.c-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.c-back { color: var(--muted); text-decoration: none; font-size: .9rem; } .c-back:hover { color: var(--fg); }
+.c-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 12.5rem), 1fr)); gap: 16px; }
+.vid { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; color: inherit; text-decoration: none; display: flex; flex-direction: column; min-width: 0; }
+.vid:hover { border-color: var(--muted); }
+.vid .th { position: relative; aspect-ratio: 9 / 16; background: var(--panel-2) center / cover no-repeat; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: .85rem; }
+.vid .th .views { position: absolute; left: 10px; bottom: 10px; background: rgb(0 0 0 / .65); color: #fff; font-weight: 600; font-size: .8rem; padding: 3px 9px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+.vid .th .gen { position: absolute; left: 10px; top: 10px; background: rgb(0 0 0 / .65); color: #fff; font-size: .72rem; padding: 2px 8px; border-radius: 999px; }
+.vid .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 4px; }
+.vid .tt { font-weight: 600; font-size: .92rem; line-height: 1.3; overflow-wrap: anywhere; }
+.vid .meta { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (max-width: 40rem) { .c-grid { grid-template-columns: 1fr 1fr; gap: 10px; } .vid { border-radius: 14px; } .vid .body { padding: 10px; } }
 /* video insights */
 .ins-sum { margin: 0 0 14px; }
 .ins-cmp { margin-bottom: 18px; }
@@ -193,7 +209,7 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
       </div>
     </div>
   </div>
-  <nav class="nav" aria-label="Sections"><a href="#rewards">Rewards</a><a href="#genres">Genres</a><a href="#views">Views</a><a href="#schedule">Schedule</a></nav>
+  <nav class="nav" aria-label="Pages"><a href="#content" id="nav-content">Content</a><button type="button" class="nav-test">test</button><button type="button" class="nav-test">test</button><button type="button" class="nav-test">test</button></nav>
   <div class="refresh" id="refresh" role="status"><span class="pill live" id="r-pill">Checking…</span><span class="r-sub" id="r-sub"></span></div>
   </div>
 
@@ -247,6 +263,10 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
       <thead><tr><th class="acct-col">Account</th><th>#</th><th>Story</th><th class="opt">Genre</th><th>When</th><th>Status</th><th class="r">Views</th><th class="r opt">Likes</th><th class="r opt">Comments</th></tr></thead>
       <tbody id="rows"></tbody>
     </table></div>
+  </section>
+  <section id="content-view" hidden>
+    <div class="c-head"><div><h1>Content</h1><p class="take" id="c-take">Loading…</p></div><a class="c-back" href="#">← Back to dashboard</a></div>
+    <div class="c-grid" id="c-grid" style="margin-top:18px"></div>
   </section>
 </div>
 
@@ -431,6 +451,41 @@ function drawInsights() {
   });
 }
 
+// Content page (#content): every live video with its cover. Covers are saved by scripts/update.py
+// as data/thumbs/<video id>.jpg because TikTok's own image links expire.
+const vidId = (url) => ((url || '').match(/video\/(\d+)/) || [])[1];
+function drawContent() {
+  const { acct, ps } = scope();
+  const live = ps.filter(p => p.status === 'Live').sort((a, b) => a.scheduled_at < b.scheduled_at ? 1 : -1);
+  const views = live.reduce((s, p) => s + (p.views || 0), 0);
+  document.getElementById('c-take').textContent = live.length ? `${live.length} live video${live.length === 1 ? '' : 's'} with ${fmt(views)} views, newest first. Tap one to open it on TikTok.` : 'No videos are live yet.';
+  const grid = document.getElementById('c-grid');
+  grid.replaceChildren(...live.map(p => {
+    const a = el('a', 'vid'); a.href = p.url; a.target = '_blank'; a.rel = 'noopener';
+    const th = el('div', 'th'); const id = vidId(p.url);
+    if (id) { const img = new Image(); img.onload = () => { th.style.backgroundImage = `url("${img.src}")`; th.firstChild && th.firstChild.nodeType === 3 && th.firstChild.remove(); }; img.src = asset(`data/thumbs/${id}.jpg`); }
+    th.append(document.createTextNode('No cover yet'));
+    if (p.genre) th.appendChild(el('span', 'gen', p.genre));
+    th.appendChild(el('span', 'views', `▶ ${fmt(p.views)}`));
+    const b = el('div', 'body');
+    b.append(el('div', 'tt', `${acct === ALL && tracked().length > 1 ? p.account + ' · ' : ''}#${p.post} ${p.title}`),
+      el('div', 'meta', `${fmt(p.likes)} likes · ${fmt(p.comments)} comments${p.views ? ` · ${((p.likes || 0) / p.views * 100).toFixed(1)}% liked` : ''}`),
+      el('div', 'meta', `Posted ${when(p.scheduled_at)}${p.game ? ' · ' + p.game : ''}`));
+    a.append(th, b); return a;
+  }));
+}
+const DASH = () => [...document.querySelectorAll('.wrap > header.head, .wrap > section')].filter(n => n.id !== 'content-view');
+function route() {
+  const c = location.hash === '#content';
+  DASH().forEach(n => { n.hidden = c; });
+  document.getElementById('content-view').hidden = !c;
+  const nav = document.getElementById('nav-content');
+  if (c) nav.setAttribute('aria-current', 'page'); else nav.removeAttribute('aria-current');
+  nav.href = c ? '#' : '#content';
+}
+window.addEventListener('hashchange', () => { route(); window.scrollTo(0, 0); });
+route();
+
 function drawTable() {
   const { acct, ps } = scope();
   const many = acct === ALL;
@@ -461,7 +516,7 @@ function drawRefresh() {
   sub.textContent = last ? 'Last ' + ago(latest) : 'Not updated yet';
 }
 
-const draw = () => { drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawInsights(); drawTable(); };
+const draw = () => { drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawInsights(); drawTable(); drawContent(); };
 
 const btn = document.getElementById('acct-btn'), panel = document.getElementById('acct-panel');
 const open = (o) => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); };

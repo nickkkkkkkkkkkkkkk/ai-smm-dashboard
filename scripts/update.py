@@ -16,6 +16,7 @@ import requests
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 AVATARS = DATA / "avatars"
+THUMBS = DATA / "thumbs"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
@@ -58,8 +59,23 @@ def video(url):
     if out.returncode != 0:
         raise RuntimeError((out.stderr.strip().splitlines() or ["yt-dlp failed"])[-1][:200])
     j = json.loads(out.stdout)
-    return {k: int(j.get(src) or 0) for k, src in
-            (("views", "view_count"), ("likes", "like_count"), ("comments", "comment_count"))}
+    stats = {k: int(j.get(src) or 0) for k, src in
+             (("views", "view_count"), ("likes", "like_count"), ("comments", "comment_count"))}
+    return stats, j.get("thumbnail")
+
+
+def save_thumb(url, thumb):
+    """Keep one cover image per video at data/thumbs/<video id>.jpg (TikTok's own links expire)."""
+    m = re.search(r"/video/(\d+)", url)
+    if not m or not thumb:
+        return
+    path = THUMBS / f"{m.group(1)}.jpg"
+    if path.exists():
+        return
+    img = requests.get(thumb, headers={"User-Agent": UA}, timeout=30)
+    if img.ok and img.content:
+        THUMBS.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(img.content)
 
 
 def main():
@@ -98,7 +114,12 @@ def main():
             p["status"] = "Scheduled"
             continue
         try:
-            p.update(video(p["url"]))
+            stats, thumb = video(p["url"])
+            p.update(stats)
+            try:
+                save_thumb(p["url"], thumb)
+            except Exception as e:
+                print(f"#{p['post']}: thumbnail failed: {e}")
             p["status"] = "Live"
             p["as_of"] = stamp
             p.pop("last_error", None)
