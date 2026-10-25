@@ -149,6 +149,22 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .acct-manage button:hover { background: var(--track); }
 .st.ok { color: var(--ok); }
 .tt-msg { margin: 6px 0 0; font-size: .85rem; color: var(--ok); } .tt-msg.bad { color: var(--warn); }
+/* video insights */
+.ins-sum { margin: 0 0 14px; }
+.ins-cmp { margin-bottom: 18px; }
+.ins-list { display: flex; flex-direction: column; gap: 12px; }
+.ins { background: var(--panel-2); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; min-width: 0; }
+.ins-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.ins-top a { color: inherit; font-weight: 600; text-decoration: none; overflow-wrap: anywhere; } .ins-top a:hover { text-decoration: underline; }
+.ins-top .pill { flex: none; white-space: nowrap; }
+.ins-stats { font-size: .8rem; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.ins-hook { margin: 10px 0 0; padding-left: 10px; border-left: 3px solid var(--line); font-size: .88rem; }
+.ins-hook .tag { display: inline-block; font-size: .7rem; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; margin-right: 6px; }
+.ins-tip { margin: 8px 0 0; font-size: .85rem; }
+.ins-tip b { font-weight: 600; }
+.pill.bad { color: #f87171; background: rgb(248 113 113 / .08); }
+.pill.good { color: var(--ok); background: rgb(34 197 94 / .08); }
+.pill.mid { color: var(--fg); }
 @keyframes flash { from { color: var(--ok); } to { color: var(--fg); } }
 .tile .num.flash { animation: flash 2s ease-out; }
 @media (max-width: 40rem) { .refresh { align-items: flex-start; } }
@@ -210,6 +226,14 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
     <div class="hbars" id="genre-bars"></div>
   </section>
 
+  <section class="card" id="insights">
+    <h2>Video insights</h2>
+    <p class="note">How each live post compares with the account's other live posts, what its first line was, and what to change. Posts under 6 hours old are too early to judge.</p>
+    <p class="ins-sum" id="ins-sum"></p>
+    <div class="hbars ins-cmp" id="style-bars"></div>
+    <div class="ins-list" id="ins-list"></div>
+  </section>
+
   <section class="card" id="views">
     <h2>Views per post</h2>
     <p class="note">Live posts only.</p>
@@ -236,7 +260,7 @@ const when = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: 'America
 const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); if (!isFinite(m)) return 'not updated yet'; if (m < 60) return `updated ${Math.max(1, m)} min ago`; if (m < 2880) return `updated ${Math.round(m / 60)} h ago`; return `updated ${Math.round(m / 1440)} days ago`; };
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
-let accounts = [], posts = [], meta = {};
+let accounts = [], posts = [], meta = {}, stories = [];
 let base = { accounts: [], posts: [] }, tt = null;
 let current = (() => { try { return localStorage.getItem('hq-account') || ALL; } catch { return ALL; } })();
 
@@ -350,6 +374,63 @@ function drawCharts() {
     .map(p => ({ label: `${acct === ALL && tracked().length > 1 ? p.account + ' ' : ''}#${p.post} ${p.title}`, value: p.views || 0, color: COLORS[0], text: `${fmt(p.views)} views · ${fmt(p.likes)} likes` })));
 }
 
+// Story details per video (data/stories.json): first spoken line ("hook") and renderer style.
+// v2 = the first 15 posts, v3 = conflict-first hook, held title card, progress bar (batch 3 on).
+const STYLE = { v2: 'Old style', v3: 'v3 style' };
+const SLOW_OPEN = /^(at|it was|one (night|day|time)|last (night|week|year)|yesterday|so,? |this (happened|is)|okay|ok,? |hey|imagine|there was)\b/i;
+function hookCheck(h) {
+  if (!h) return null;
+  const words = h.split(/\s+/).length;
+  if (SLOW_OPEN.test(h)) return { ok: false, why: 'opens by setting the scene instead of stating the conflict' };
+  if (words > 20) return { ok: false, why: `is ${words} words, so the promise lands late` };
+  return { ok: true, why: 'states the conflict straight away' };
+}
+function drawInsights() {
+  const { acct, ps } = scope();
+  const byUrl = Object.fromEntries(stories.map(x => [x.url, x]));
+  const live = ps.filter(p => p.status === 'Live').map(p => ({ ...p, ...(byUrl[p.url] || {}), hours: Math.max(0, (Date.now() - new Date(p.scheduled_at)) / 3600000) }));
+  const sum = document.getElementById('ins-sum'), list = document.getElementById('ins-list');
+  list.textContent = '';
+  if (!live.length) { sum.textContent = 'Nothing is live yet. Insights show up once the first post has been up for a few hours.'; hbars(document.getElementById('style-bars'), []); return; }
+  const rows = live.map(p => {
+    // Compare with the same account's other live posts, so one big hit doesn't hide behind its own number.
+    const others = live.filter(o => o.account === p.account && o.url !== p.url);
+    const avg = others.length ? others.reduce((s, o) => s + (o.views || 0), 0) / others.length : null;
+    const ratio = avg ? (p.views || 0) / avg : null;
+    const likeRate = p.views ? (p.likes || 0) / p.views : 0;
+    const hook = hookCheck(p.hook);
+    let flag, cls, tip;
+    if (p.hours < 6) { flag = 'Too early'; cls = 'sched'; tip = `Up ${p.hours < 1 ? 'under an hour' : Math.floor(p.hours) + ' h'}. TikTok is still testing it on small audiences, so check back later.`;
+      if (ratio != null && ratio < 0.25 && p.hours >= 2) tip += ' Early sign: it is well behind the others' + (hook && !hook.ok ? `, and its first line ${hook.why}.` : '.'); }
+    else if (ratio == null) { flag = 'First post'; cls = 'mid'; tip = 'Nothing to compare with yet. The next few posts set the account average.'; }
+    else if (ratio < 0.5) {
+      flag = 'Underperforming'; cls = 'bad';
+      tip = hook && !hook.ok ? `The first line ${hook.why}. Viewers decide in about 2 seconds, so lead with the payoff, like the best performer does.`
+        : 'The hook reads fine, so check where viewers swiped away in TikTok Studio (Analytics, then this video). An early drop means the opening visuals or title card; a late drop means the middle drags.';
+    } else if (ratio >= 1.5) { flag = 'Winner'; cls = 'good'; tip = `Make more like this: ${p.genre ? p.genre.toLowerCase() + ', ' : ''}${p.game || 'same game'}, and the same hook shape.`; }
+    else { flag = 'On par'; cls = 'mid'; tip = hook && !hook.ok ? `Doing fine, but the first line ${hook.why}. A sharper opener could push it higher.` : 'In line with the account. Nothing to fix.'; }
+    if (p.hours >= 6 && p.views >= 200 && likeRate < 0.03) tip += ' Few viewers liked it, so the ending may not pay off; end on a twist or a question.';
+    return { p, ratio, likeRate, flag, cls, tip, hook };
+  });
+  const judged = rows.filter(r => r.ratio != null && r.p.hours >= 6);
+  const best = judged.slice().sort((a, b) => b.ratio - a.ratio)[0], worst = judged.slice().sort((a, b) => a.ratio - b.ratio)[0];
+  const under = judged.filter(r => r.flag === 'Underperforming');
+  sum.textContent = !judged.length ? 'Not enough data yet: posts need about 6 hours before they can be judged.'
+    : `${under.length ? `${under.length} of ${judged.length} judged post${judged.length === 1 ? '' : 's'} ${under.length === 1 ? 'is' : 'are'} underperforming.` : 'No judged posts are underperforming.'} Best so far: "${best.p.title}" at ${best.ratio.toFixed(1)}× the others` + (worst !== best ? `. Weakest: "${worst.p.title}" at ${worst.ratio.toFixed(2)}×.` : '.');
+  // Old style vs v3, once v3 posts are live.
+  const groups = Object.keys(STYLE).map((k, i) => { const g = live.filter(p => (p.style || 'v2') === k); return { label: STYLE[k], value: g.length ? Math.round(g.reduce((s, p) => s + (p.views || 0), 0) / g.length) : null, color: COLORS[i], text: g.length ? `${fmt(Math.round(g.reduce((s, p) => s + (p.views || 0), 0) / g.length))} avg views · ${g.length} live` : 'No posts live yet' }; });
+  hbars(document.getElementById('style-bars'), groups);
+  rows.sort((a, b) => b.p.scheduled_at < a.p.scheduled_at ? -1 : 1).forEach(({ p, ratio, likeRate, flag, cls, tip, hook }) => {
+    const c = el('div', 'ins'); const top = el('div', 'ins-top'); const a = el('a', null, `${acct === ALL && tracked().length > 1 ? p.account + ' ' : ''}#${p.post} ${p.title}`); a.href = p.url; a.target = '_blank'; a.rel = 'noopener';
+    top.append(a, el('span', 'pill ' + cls, flag));
+    const vph = p.hours >= 1 ? ` · ${fmt(Math.round((p.views || 0) / p.hours))}/h` : '';
+    c.append(top, el('div', 'ins-stats', `${fmt(p.views)} views${vph} · ${ratio == null ? 'no average yet' : ratio.toFixed(ratio < 1 ? 2 : 1) + '× the others'} · ${(likeRate * 100).toFixed(1)}% liked · ${fmt(p.comments)} comments · up ${p.hours < 1 ? '<1' : Math.floor(p.hours)} h`));
+    if (p.hook) { const h = el('p', 'ins-hook'); h.append(el('span', 'tag', STYLE[p.style] || p.style || 'Old style'), document.createTextNode(`"${p.hook}"`)); if (hook && !hook.ok) h.style.borderLeftColor = 'var(--warn)'; c.appendChild(h); }
+    const t = el('p', 'ins-tip'); t.append(el('b', null, 'Next: '), document.createTextNode(tip)); c.appendChild(t);
+    list.appendChild(c);
+  });
+}
+
 function drawTable() {
   const { acct, ps } = scope();
   const many = acct === ALL;
@@ -380,7 +461,7 @@ function drawRefresh() {
   sub.textContent = last ? 'Last ' + ago(latest) : 'Not updated yet';
 }
 
-const draw = () => { drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawTable(); };
+const draw = () => { drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawInsights(); drawTable(); };
 
 const btn = document.getElementById('acct-btn'), panel = document.getElementById('acct-panel');
 const open = (o) => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); };
@@ -437,8 +518,8 @@ const flash = () => document.querySelectorAll('.tile .num').forEach(n => { n.cla
 async function load() {
   try {
     const first = !meta.updated_at;
-    const [a, p, m, t] = await Promise.all([get('accounts.json'), get('posts.json'), get('meta.json'), getTT()]);
-    base = { accounts: a, posts: p }; meta = m; if (t) tt = t; merge(); draw();
+    const [a, p, m, t, st] = await Promise.all([get('accounts.json'), get('posts.json'), get('meta.json'), getTT(), get('stories.json').catch(() => stories)]);
+    base = { accounts: a, posts: p }; meta = m; stories = st; if (t) tt = t; merge(); draw();
     if (!first) flash();
   } catch (e) { if (!meta.updated_at) document.getElementById('take').textContent = "Couldn't load the stats files. Try refreshing the page."; }
 }
