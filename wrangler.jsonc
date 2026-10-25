@@ -1,0 +1,6 @@
+// Cloudflare deploy config: serves the dashboard as static files.
+{
+  "name": "ai-smm-dashboard",
+  "compatibility_date": "2025-09-01",
+  "assets": { "directory": "." }
+}
