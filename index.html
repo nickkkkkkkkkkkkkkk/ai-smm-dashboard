@@ -335,7 +335,8 @@ function drawTiles() {
   const set = (id, v) => { document.getElementById(id).textContent = v; };
   set('t-live', live.length); set('t-total', ps.length); set('t-views', fmt(sum('views'))); set('t-likes', fmt(sum('likes')));
   set('t-comments', fmt(sum('comments'))); set('t-followers', fmt(accts.reduce((s, a) => s + (a.followers || 0), 0)));
-  set('t-accounts', `${accts.length} account${accts.length === 1 ? '' : 's'}`);
+  // One profile: show who it follows; the account count only means something across accounts.
+  set('t-accounts', acct === ALL ? `${accts.length} account${accts.length === 1 ? '' : 's'}` : `${fmt(accts.reduce((s, a) => s + (a.following || 0), 0))} following`);
   set('t-next', next ? when(next.scheduled_at) : '—'); set('t-next-title', next ? next.title : 'Nothing scheduled');
   const who = acct === ALL ? `Across ${accts.length} account${accts.length === 1 ? '' : 's'}, ` : `On ${acct}, `;
   set('take', `${who}${live.length} of ${ps.length} posts are live with ${fmt(sum('views'))} views. ` + (next ? `Next up: "${next.title}" on ${when(next.scheduled_at)}.` : 'Nothing else is scheduled. Time for the next batch.'));
