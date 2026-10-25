@@ -52,7 +52,8 @@ h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
 .acct-foot p { margin: 0 0 6px; } .acct-foot b { color: var(--fg); font-weight: 600; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .av { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 50%; overflow: hidden; background: var(--track); color: var(--muted); font-weight: 600; }
-.av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.av { background-size: cover; background-position: center; aspect-ratio: 1; flex-shrink: 0; }
+#acct-av { display: inline-flex; flex: none; }
 /* goals */
 .goals { display: flex; flex-direction: column; gap: 18px; }
 .goal-acct { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; }
@@ -101,12 +102,12 @@ h2 { font-size: 1.15rem; font-weight: 600; }
 .tiles { gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); }
 .tile .lbl { font-size: .85rem; }
 .tile .num { font-family: var(--display); font-weight: 600; font-size: 1.6rem; }
-.acct-btn { background: var(--accent); border-color: transparent; color: #fff; font-weight: 600; padding: 6px 16px 6px 6px; border-radius: 14px; }
+.acct-btn { background: var(--accent); border-color: transparent; color: #fff; font-weight: 600; padding: 6px 14px 6px 6px; border-radius: 14px; gap: 10px; }
 .acct-btn .lbl { color: rgb(255 255 255 / .75); }
 .acct-panel { background: var(--panel); border-radius: 18px; box-shadow: 0 16px 40px rgb(0 0 0 / .5); }
 .acct-item { border-radius: 12px; }
 .acct-item:hover { background: var(--panel-2); }
-.av { background: var(--panel-2); }
+.av { background-color: var(--panel-2); }
 .bar { height: 10px; }
 .fill { background: var(--accent-3); }
 .hrow .b { border-radius: 8px; }
@@ -148,8 +149,8 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 <div class="wrap">
   <div class="topbar">
   <div class="acct" id="acct">
-    <button type="button" class="acct-btn" id="acct-btn" aria-haspopup="true" aria-expanded="false">
-      <span id="acct-av"></span><span class="lbl">Accounts</span><span class="cur" id="acct-cur">All accounts</span><span aria-hidden="true">▾</span>
+    <button type="button" class="acct-btn" id="acct-btn" aria-label="Switch account" aria-haspopup="true" aria-expanded="false">
+      <span id="acct-av"></span><span class="cur" id="acct-cur">All accounts</span><span aria-hidden="true">▾</span>
     </button>
     <div class="acct-panel" id="acct-panel" hidden>
       <div id="acct-list"></div>
@@ -228,7 +229,8 @@ let current = (() => { try { return localStorage.getItem('hq-account') || ALL; }
 
 const avatar = (a, size) => {
   const s = el('span', 'av'); s.style.width = s.style.height = size + 'px';
-  if (a && a.avatar) { const i = new Image(); i.src = a.avatar + '?v=' + encodeURIComponent(a.as_of || ''); i.alt = ''; s.appendChild(i); }
+  // A background image always fills the circle without stretching, unlike an <img> inside a flex item on iOS.
+  if (a && a.avatar) s.style.backgroundImage = `url("${a.avatar}?v=${encodeURIComponent(a.as_of || '')}")`;
   else { s.style.fontSize = Math.round(size * .45) + 'px'; s.textContent = a ? (a.account || '?').replace('@', '')[0].toUpperCase() : '∑'; }
   return s;
 };
@@ -269,7 +271,7 @@ function drawPicker() {
   const removed = accounts.filter(a => a.tracking === 'removed'), rbox = document.getElementById('acct-removed');
   rbox.replaceChildren(...(removed.length ? [el('div', 'acct-removed-h', 'Removed accounts')] : []), ...removed.map(a => { const r = el('a', 'acct-restore', `Restore ${a.account}`); r.href = issueUrl('restore', a.account); r.target = '_blank'; r.rel = 'noopener'; r.dataset.pend = 'restore ' + a.account; return r; }));
   document.getElementById('acct-cur').textContent = acct === ALL ? 'All accounts' : acct;
-  document.getElementById('acct-av').replaceChildren(avatar(acct === ALL ? null : tracked().find(a => a.account === acct), 28));
+  document.getElementById('acct-av').replaceChildren(avatar(acct === ALL ? null : tracked().find(a => a.account === acct), 32));
 }
 function drawTiles() {
   const { acct, accts, ps } = scope();
