@@ -303,13 +303,11 @@ function drawPicker() {
     row.appendChild(more);
     if (managing !== key) return [row];
     const m = el('div', 'acct-manage'); const link = (text, href, cls) => { const a = el('a', cls, text); a.href = href; a.target = '_blank'; a.rel = 'noopener'; m.appendChild(a); };
-    link('Open profile on TikTok ↗', `https://www.tiktok.com/${key}`);
-    link('Open TikTok Studio ↗', 'https://www.tiktok.com/tiktokstudio');
     if (rec.open_id) {
       const f = el('form'); f.method = 'post'; f.action = '/auth/tiktok/disconnect';
       const id = el('input'); id.type = 'hidden'; id.name = 'open_id'; id.value = rec.open_id;
-      f.append(id, el('button', null, 'Disconnect TikTok sign-in'));
-      f.addEventListener('submit', (e) => { if (!confirm(`Disconnect ${key}? The dashboard goes back to reading its public page.`)) e.preventDefault(); });
+      f.append(id, el('button', null, 'Remove account'));
+      f.addEventListener('submit', (e) => { if (!confirm(`Remove ${key} from the dashboard? Sign in with TikTok again any time to bring it back.`)) e.preventDefault(); });
       if (rec.connected === 'reconnect') link('Sign in with TikTok again', '/auth/tiktok/start');
       m.appendChild(f);
     } else {
@@ -325,7 +323,7 @@ function drawPicker() {
     ...tracked().flatMap(a => { const bad = a.connected === 'reconnect' || (a.last_update_status && !['ok', 'pending'].includes(a.last_update_status)); return item(a.account, a, a.account, [a.open_id ? 'TikTok · signed in' : 'TikTok', a.niche].filter(Boolean).join(' · '), a.connected === 'reconnect' ? 'sign in again' : bad ? "couldn't read" : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
     ...pend.map(p => el('div', 'pending', `${p.action === 'add' ? 'Adding' : p.action === 'remove' ? 'Removing' : 'Restoring'} ${p.handle}… shows here about a minute after you submit on GitHub`)));
   const removed = accounts.filter(a => a.tracking === 'removed'), rbox = document.getElementById('acct-removed');
-  rbox.replaceChildren(...(removed.length ? [el('div', 'acct-removed-h', 'Removed accounts')] : []), ...removed.map(a => { const r = el('a', 'acct-restore', `Restore ${a.account}`); r.href = issueUrl('restore', a.account); r.target = '_blank'; r.rel = 'noopener'; r.dataset.pend = 'restore ' + a.account; return r; }));
+  rbox.replaceChildren(...(removed.length ? [el('div', 'acct-removed-h', 'Removed accounts')] : []), ...removed.map(a => { const r = el('a', 'acct-restore', `Restore ${a.account} (sign in with TikTok)`); r.href = '/auth/tiktok/start'; return r; }));
   document.getElementById('acct-cur').textContent = acct === ALL ? 'All accounts' : acct;
   document.getElementById('acct-av').replaceChildren(avatar(acct === ALL ? null : tracked().find(a => a.account === acct), 32));
 }
@@ -522,10 +520,6 @@ document.getElementById('acct-list').addEventListener('click', (e) => {
   current = it.dataset.account; try { localStorage.setItem('hq-account', current); } catch {}
   managing = null; open(false); draw();
 });
-document.getElementById('acct-removed').addEventListener('click', (e) => {
-  const r = e.target.closest('.acct-restore'); if (!r) return;
-  savePending([...loadPending(), { action: 'restore', handle: r.dataset.pend.split(' ')[1], at: Date.now() }]); setTimeout(drawPicker, 0);
-});
 
 // On github.io the data files sit next to the page. On Cloudflare (which isn't rebuilt for data-only
 // commits) one call to /api/data in src/worker.js returns the latest files from GitHub plus the
@@ -546,6 +540,8 @@ function merge() {
     Object.assign(a, { open_id: t.open_id, connected: t.status, avatar_url: t.avatar_url, tracking: 'active' });
     if (t.status === 'ok') Object.assign(a, { followers: t.followers, following: t.following, profile_likes: t.profile_likes, as_of: t.as_of, last_update_status: 'ok' });
   });
+  // Accounts removed through "Remove account" stay hidden until they sign in again.
+  (tt.hidden || []).forEach(h => accounts.filter(x => !x.open_id && x.account.toLowerCase() === h).forEach(x => { x.tracking = 'removed'; }));
   posts.forEach(p => { const v = tt.videos[((p.url || '').match(/video\/(\d+)/) || [])[1]]; if (v) Object.assign(p, { views: v.views, likes: v.likes, comments: v.comments, shares: v.shares, last_error: null }); });
 }
 const flash = () => document.querySelectorAll('.tile .num').forEach(n => { n.classList.remove('flash'); void n.offsetWidth; n.classList.add('flash'); });
@@ -574,7 +570,7 @@ async function check() {
 (() => {
   const q = new URLSearchParams(location.search), box = document.getElementById('tt-msg');
   const msg = q.has('connected') ? `Signed in as ${q.get('connected') || 'your TikTok'}. Official stats now refresh every 10 minutes.`
-    : q.has('disconnected') ? 'Disconnected from TikTok.'
+    : q.has('removed') ? `Removed ${q.get('removed') || 'the account'} from the dashboard. Sign in with TikTok to bring it back.`
     : q.get('error') === 'state' ? 'That TikTok sign-in expired. Try again.'
     : q.has('error') ? `TikTok sign-in didn't finish (${q.get('error')}).` : '';
   if (!msg) return;
