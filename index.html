@@ -2,7 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Content HQ">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
 <title>Content HQ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
@@ -75,7 +83,7 @@ td.t { min-width: 14rem; } td.t a { color: inherit; } .q { display: block; font-
 
 /* screenshot-style overrides: dark rounded cards, pill nav, status pills */
 body { font-size: 15px; letter-spacing: .005em; }
-.wrap { max-width: 1060px; gap: 24px; padding-block: 28px 64px; }
+.wrap { max-width: 1060px; gap: 24px; padding-block: max(28px, calc(env(safe-area-inset-top, 0px) + 12px)) max(64px, env(safe-area-inset-bottom, 0px)); }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .nav { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 6px; overflow-x: auto; max-width: 100%; }
 .nav a { color: var(--fg); text-decoration: none; font-weight: 600; font-size: .92rem; padding: 8px 14px; border-radius: 11px; white-space: nowrap; }
