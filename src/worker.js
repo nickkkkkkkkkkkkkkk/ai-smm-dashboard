@@ -74,6 +74,11 @@ async function callback(req, url, env) {
   if (!data.accounts.some(a => a.open_id === tok.open_id)) data.accounts.push({ open_id: tok.open_id });
   const synced = await sync(env, data);
   const who = synced.accounts.find(a => a.open_id === tok.open_id);
+  // Signing in again brings back an account that was removed from the dashboard.
+  if (who?.account && (synced.hidden || []).includes(who.account.toLowerCase())) {
+    synced.hidden = synced.hidden.filter(h => h !== who.account.toLowerCase());
+    await env.HQ.put(DATA_KEY, JSON.stringify(synced));
+  }
   return back(url, 'connected=' + encodeURIComponent(who?.account || ''));
 }
 
@@ -84,10 +89,13 @@ async function disconnect(req, url, env) {
   if (tok) await call('/oauth/revoke/', form({ client_key: env.TIKTOK_CLIENT_KEY, client_secret: env.TIKTOK_CLIENT_SECRET, token: tok.access_token })).catch(() => {});
   await env.HQ.delete(`tok:${id}`);
   const data = await load(env);
+  // "Remove account": also hide its public-page record, so it leaves the dashboard entirely.
+  const gone = data.accounts.find(a => a.open_id === id)?.account;
+  if (gone) data.hidden = [...new Set([...(data.hidden || []), gone.toLowerCase()])];
   data.accounts = data.accounts.filter(a => a.open_id !== id);
   data.videos = Object.fromEntries(Object.entries(data.videos).filter(([, v]) => v.open_id !== id));
   await env.HQ.put(DATA_KEY, JSON.stringify(data));
-  return back(url, 'disconnected=1');
+  return back(url, 'removed=' + encodeURIComponent(gone || ''));
 }
 
 // Refreshes every connected account. Runs on the cron in wrangler.jsonc and right after a sign-in.
