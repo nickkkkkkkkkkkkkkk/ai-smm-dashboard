@@ -1,4 +1,9 @@
 .git
+.git/**
 .github
+.wrangler
 scripts
+README.md
+.gitattributes
 wrangler.jsonc
+node_modules
