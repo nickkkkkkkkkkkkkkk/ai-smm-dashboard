@@ -56,7 +56,7 @@ async function fromAccess(req, env) {
 function start(url, env) {
   if (!env.TIKTOK_CLIENT_KEY || !env.TIKTOK_CLIENT_SECRET) return text('TikTok sign-in is not set up yet: add TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET to the Worker.', 503);
   const state = crypto.randomUUID();
-  const q = new URLSearchParams({ client_key: env.TIKTOK_CLIENT_KEY, scope: SCOPES, response_type: 'code', redirect_uri: redirectUri(url), state });
+  const q = new URLSearchParams({ client_key: env.TIKTOK_CLIENT_KEY, scope: SCOPES, response_type: 'code', redirect_uri: redirectUri(url, env), state });
   return new Response(null, {
     status: 302,
     headers: { Location: `${AUTH_URL}?${q}`, 'Set-Cookie': `tt_state=${state}; Path=/auth/tiktok; Max-Age=600; HttpOnly; Secure; SameSite=Lax` },
@@ -68,7 +68,7 @@ async function callback(req, url, env) {
   if (!state || state !== url.searchParams.get('state')) return back(url, 'error=state');
   const code = url.searchParams.get('code');
   if (!code) return back(url, 'error=' + encodeURIComponent(url.searchParams.get('error') || 'denied'));
-  const tok = await token(env, { grant_type: 'authorization_code', code, redirect_uri: redirectUri(url) });
+  const tok = await token(env, { grant_type: 'authorization_code', code, redirect_uri: redirectUri(url, env) });
   await env.HQ.put(`tok:${tok.open_id}`, JSON.stringify(tok));
   const data = await load(env);
   if (!data.accounts.some(a => a.open_id === tok.open_id)) data.accounts.push({ open_id: tok.open_id });
@@ -175,7 +175,9 @@ async function repoData() {
 
 const load = async (env) => (await env.HQ.get(DATA_KEY, 'json')) || { accounts: [], videos: {}, updated_at: null };
 const form = (o) => ({ method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(o) });
-const redirectUri = (url) => `${url.origin}/auth/tiktok/callback`;
+// TIKTOK_REDIRECT_URI lets TikTok send people back via the public github.io page (tiktok-callback.html),
+// for when TikTok wants the return address on the verified site; that page forwards here.
+const redirectUri = (url, env) => env.TIKTOK_REDIRECT_URI || `${url.origin}/auth/tiktok/callback`;
 const back = (url, q) => new Response(null, { status: 302, headers: { Location: `${url.origin}/?${q}`, 'Set-Cookie': 'tt_state=; Path=/auth/tiktok; Max-Age=0' } });
 const json = (o) => new Response(JSON.stringify(o), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const text = (t, status) => new Response(t, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
