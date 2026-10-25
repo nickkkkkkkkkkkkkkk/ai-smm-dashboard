@@ -1,5 +1,7 @@
 // Sign in with TikTok and official stats. Static files are served by Cloudflare before this runs;
 // only /auth/* and /api/* reach it. Tokens stay in KV and never leave the Worker.
+// /api/data also hands the page the stats files from GitHub, so browsers never hit GitHub's
+// 60-requests-an-hour limit for visitors without a login.
 
 const AUTH_URL = 'https://www.tiktok.com/v2/auth/authorize/';
 const API = 'https://open.tiktokapis.com/v2';
@@ -7,6 +9,8 @@ const SCOPES = 'user.info.basic,user.info.profile,user.info.stats,video.list';
 const USER_FIELDS = 'open_id,avatar_url,display_name,username,follower_count,following_count,likes_count,video_count';
 const VIDEO_FIELDS = 'id,title,create_time,share_url,view_count,like_count,comment_count,share_count';
 const DATA_KEY = 'tiktok';
+const REPO = 'nickkkkkkkkkkkkkkk/ai-smm-dashboard';
+const FILES = ['accounts', 'posts', 'meta', 'stories'];
 
 export default {
   async fetch(req, env) {
@@ -17,6 +21,7 @@ export default {
       if (url.pathname === '/auth/tiktok/callback') return await callback(req, url, env);
       if (url.pathname === '/auth/tiktok/disconnect' && req.method === 'POST') return await disconnect(req, url, env);
       if (url.pathname === '/api/tiktok') return json(await load(env));
+      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env) });
     } catch (e) {
       return text(`Something went wrong: ${e.message}`, 502);
     }
@@ -139,6 +144,33 @@ async function call(path, init) {
   const err = typeof body.error === 'string' ? body.error_description || body.error : body.error && body.error.code !== 'ok' ? `${body.error.code}: ${body.error.message}` : null;
   if (!res.ok || err) throw new Error(err || `TikTok returned ${res.status}`);
   return body.data || body;
+}
+
+// The newest commit on main comes from git's own ref listing, which has no API rate limit. Files are
+// then read from raw.githubusercontent.com by that commit, so they are never a stale cached copy.
+// Kept in memory for 20 seconds so a page polling every 30 seconds costs GitHub almost nothing.
+let repo = { at: 0, sha: null, files: null };
+async function repoData() {
+  if (Date.now() - repo.at < 20e3) return { sha: repo.sha, files: repo.files };
+  try {
+    const refs = await (await fetch(`https://github.com/${REPO}.git/info/refs?service=git-upload-pack`, { headers: { 'User-Agent': 'content-hq' } })).text();
+    const sha = refs.match(/([0-9a-f]{40}) refs\/heads\/main\n/)?.[1];
+    if (!sha) throw new Error('No main branch found');
+    if (sha !== repo.sha) {
+      const got = await Promise.all(FILES.map(async f => {
+        const r = await fetch(`https://raw.githubusercontent.com/${REPO}/${sha}/data/${f}.json`);
+        if (r.ok) return r.json();
+        if (r.status === 404) return null;
+        throw new Error(`GitHub returned ${r.status} for ${f}.json`);
+      }));
+      repo.files = Object.fromEntries(FILES.map((f, i) => [f, got[i]]));
+      repo.sha = sha;
+    }
+    repo.at = Date.now();
+  } catch (e) {
+    if (!repo.files) throw e;
+  }
+  return { sha: repo.sha, files: repo.files };
 }
 
 const load = async (env) => (await env.HQ.get(DATA_KEY, 'json')) || { accounts: [], videos: {}, updated_at: null };
