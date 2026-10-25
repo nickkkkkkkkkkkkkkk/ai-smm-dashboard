@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>
+// The dashboard lives behind a login on Cloudflare; the public github.io copy only forwards there.
+if (location.hostname.endsWith('github.io')) location.replace('https://ai-smm-dashboard.steep-shape-ea79.workers.dev/');
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0b0c">
 <meta name="apple-mobile-web-app-capable" content="yes">
