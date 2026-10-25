@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Content HQ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Figtree:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column of cards under a header row with the account picker at top left. */
+:root {
+  --bg: #f6f5f8; --panel: #ffffff; --fg: #1b1a22; --muted: #686577; --line: #e3e1ea;
+  --accent: #5b4bd6; --accent-2: #e2557f; --accent-3: #1f9e8f; --accent-4: #e0a020;
+  --ok: #1b8a5a; --warn: #b26a00; --track: #ecebf2;
+  --display: "Fraunces", Georgia, serif; --body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root { --bg: #121118; --panel: #1b1a23; --fg: #ecebf3; --muted: #a29fb3; --line: #2d2b39; --accent: #9b8cff; --accent-2: #ff7fa3; --accent-3: #4fd1bf; --accent-4: #f4c15d; --ok: #55d39a; --warn: #f0a640; --track: #2a2836; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1100px; margin: 0 auto; padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 20px; }
+h1 { font-family: var(--display); font-weight: 400; font-size: clamp(1.7rem, 4vw, 2.3rem); margin: 0; text-wrap: balance; }
+h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.take { color: var(--muted); margin: 4px 0 0; }
+.updated { color: var(--muted); font-size: .8rem; }
+.card, .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; }
+.note { color: var(--muted); font-size: .82rem; margin: 4px 0 14px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr)); gap: 12px; }
+.tile .lbl { font-size: .8rem; color: var(--muted); }
+.tile .num { font-family: var(--display); font-size: 1.9rem; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .sub { font-size: .8rem; color: var(--muted); overflow-wrap: anywhere; }
+/* account picker */
+.acct { position: relative; align-self: flex-start; max-width: 100%; }
+.acct-btn { display: inline-flex; align-items: center; gap: 10px; font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px 6px 6px; cursor: pointer; max-width: 100%; }
+.acct-btn .lbl { font-size: .75rem; color: var(--muted); }
+.acct-btn .cur { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acct-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; width: min(25rem, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgb(0 0 0 / .16); padding: 8px; }
+.acct-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left; font: inherit; color: var(--fg); background: none; border: 1px solid transparent; border-radius: 10px; padding: 6px 8px; cursor: pointer; }
+.acct-item:hover { background: var(--track); }
+.acct-item[aria-checked="true"] { border-color: var(--accent); }
+.who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.who .h { font-weight: 600; } .who .s { display: block; font-size: .78rem; color: var(--muted); }
+.st { font-size: .75rem; color: var(--muted); white-space: nowrap; } .st.bad { color: var(--warn); }
+.acct-foot { border-top: 1px solid var(--line); margin-top: 6px; padding: 8px 8px 2px; font-size: .78rem; color: var(--muted); }
+.acct-foot p { margin: 0 0 6px; } .acct-foot b { color: var(--fg); font-weight: 600; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.av { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 50%; overflow: hidden; background: var(--track); color: var(--muted); font-weight: 600; }
+.av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* goals */
+.goals { display: flex; flex-direction: column; gap: 18px; }
+.goal-acct { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; }
+.goal-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 18px; }
+.goal-top { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+.bar { height: 12px; border-radius: 999px; background: var(--track); margin-top: 8px; overflow: hidden; }
+.fill { height: 100%; border-radius: 999px; background: var(--accent); }
+.pct { font-size: .78rem; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+/* bar charts */
+.hbars { display: flex; flex-direction: column; gap: 10px; }
+.hrow { display: grid; grid-template-columns: minmax(6rem, 34%) 1fr; align-items: center; gap: 10px; }
+.hrow .k { font-size: .85rem; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hrow .track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hrow .b { height: 24px; border-radius: 6px; min-width: 2px; }
+.hrow .v { font-size: .8rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* table */
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-size: .75rem; font-weight: 600; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.r, th.r { text-align: right; }
+td.t { min-width: 14rem; } td.t a { color: inherit; } .q { display: block; font-size: .78rem; color: var(--muted); }
+.pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: .75rem; border: 1px solid var(--line); white-space: nowrap; }
+.pill.live { color: var(--ok); border-color: currentColor; } .pill.sched { color: var(--muted); }
+@media (max-width: 40rem) { .opt { display: none; } }
+.err { color: var(--warn); }
+@media (prefers-reduced-motion: no-preference) { .fill, .hrow .b { transition: width .5s ease-out; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="acct" id="acct">
+    <button type="button" class="acct-btn" id="acct-btn" aria-haspopup="true" aria-expanded="false">
+      <span id="acct-av"></span><span class="lbl">Accounts</span><span class="cur" id="acct-cur">All accounts</span><span aria-hidden="true">▾</span>
+    </button>
+    <div class="acct-panel" id="acct-panel" role="menu" hidden>
+      <div id="acct-list"></div>
+      <div class="acct-foot">
+        <p><b>Add or remove an account:</b> ask Claude, or edit <code>data/accounts.json</code> in the repo. Stats fill in on the next hourly update. Removing an account (tracking: "removed") hides it but keeps its history.</p>
+        <p><b>No logins here:</b> the updater only reads public TikTok pages, so this page never holds passwords.</p>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <h1>Content HQ</h1>
+    <p class="take" id="take">Loading…</p>
+    <div class="updated" id="updated"></div>
+  </header>
+
+  <section class="tiles">
+    <div class="tile"><div class="lbl">Posts live</div><div class="num" id="t-live">—</div><div class="sub">of <span id="t-total">—</span> in the plan</div></div>
+    <div class="tile"><div class="lbl">Total views</div><div class="num" id="t-views">—</div><div class="sub">All live posts</div></div>
+    <div class="tile"><div class="lbl">Total likes</div><div class="num" id="t-likes">—</div><div class="sub"><span id="t-comments">—</span> comments</div></div>
+    <div class="tile"><div class="lbl">Followers</div><div class="num" id="t-followers">—</div><div class="sub"><span id="t-accounts">—</span></div></div>
+    <div class="tile"><div class="lbl">Next post</div><div class="num" id="t-next" style="font-size:1.35rem">—</div><div class="sub" id="t-next-title">—</div></div>
+  </section>
+
+  <section class="card" id="rewards">
+    <h2>Road to Creator Rewards</h2>
+    <p class="note">TikTok's bar to join, per account: 10,000 followers and 100,000 views in the last 30 days.</p>
+    <div class="goals" id="goals"></div>
+  </section>
+
+  <section class="card" id="genres">
+    <h2>Average views by genre</h2>
+    <p class="note">Mean views per live post. Genres with nothing live yet show how many are scheduled.</p>
+    <div class="hbars" id="genre-bars"></div>
+  </section>
+
+  <section class="card" id="views">
+    <h2>Views per post</h2>
+    <p class="note">Live posts only.</p>
+    <div class="hbars" id="post-bars"></div>
+  </section>
+
+  <section class="card" id="schedule">
+    <h2>Posting schedule</h2>
+    <p class="note">Every post in posting order. Times are Eastern. Titles open the video.</p>
+    <div class="scroll"><table>
+      <thead><tr><th class="acct-col">Account</th><th>#</th><th>Story</th><th class="opt">Genre</th><th>When</th><th>Status</th><th class="r">Views</th><th class="r opt">Likes</th><th class="r opt">Comments</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </section>
+</div>
+
+<script>
+const ALL = 'all';
+const GENRES = ['Revenge', 'Horror', 'Funny', 'Wholesome'];
+const COLORS = ['var(--accent)', 'var(--accent-2)', 'var(--accent-3)', 'var(--accent-4)'];
+const nf = new Intl.NumberFormat('en-US');
+const fmt = (n) => nf.format(n || 0);
+const when = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); if (!isFinite(m)) return 'not updated yet'; if (m < 60) return `updated ${Math.max(1, m)} min ago`; if (m < 2880) return `updated ${Math.round(m / 60)} h ago`; return `updated ${Math.round(m / 1440)} days ago`; };
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+let accounts = [], posts = [], meta = {};
+let current = (() => { try { return localStorage.getItem('hq-account') || ALL; } catch { return ALL; } })();
+
+const avatar = (a, size) => {
+  const s = el('span', 'av'); s.style.width = s.style.height = size + 'px';
+  if (a && a.avatar) { const i = new Image(); i.src = a.avatar + '?v=' + encodeURIComponent(a.as_of || ''); i.alt = ''; s.appendChild(i); }
+  else { s.style.fontSize = Math.round(size * .45) + 'px'; s.textContent = a ? (a.account || '?').replace('@', '')[0].toUpperCase() : '∑'; }
+  return s;
+};
+
+const tracked = () => accounts.filter(a => a.tracking !== 'removed');
+const pick = () => (current !== ALL && tracked().some(a => a.account === current)) ? current : ALL;
+const scope = () => { const acct = pick(); const names = acct === ALL ? tracked().map(a => a.account) : [acct]; return { acct, accts: tracked().filter(a => names.includes(a.account)), ps: posts.filter(p => names.includes(p.account)) }; };
+
+function drawPicker() {
+  const acct = pick(), list = document.getElementById('acct-list');
+  const item = (key, rec, h, s, st, bad) => {
+    const b = el('button', 'acct-item'); b.type = 'button'; b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', String(key === acct)); b.dataset.account = key;
+    const who = el('span', 'who'); const txt = el('span'); txt.append(el('span', 'h', h), el('span', 's', s)); who.append(avatar(rec, 32), txt);
+    b.append(who, el('span', 'st' + (bad ? ' bad' : ''), st)); return b;
+  };
+  list.replaceChildren(item(ALL, null, 'All accounts', `${tracked().length} tracked`, '', false),
+    ...tracked().map(a => { const bad = a.last_update_status && a.last_update_status !== 'ok'; return item(a.account, a, a.account, ['TikTok', a.niche].filter(Boolean).join(' · '), bad ? "couldn't read" : ago(a.as_of), bad); }));
+  document.getElementById('acct-cur').textContent = acct === ALL ? 'All accounts' : acct;
+  document.getElementById('acct-av').replaceChildren(avatar(acct === ALL ? null : tracked().find(a => a.account === acct), 28));
+}
+
+function drawTiles() {
+  const { acct, accts, ps } = scope();
+  const live = ps.filter(p => p.status === 'Live');
+  const sum = (k) => live.reduce((s, p) => s + (p[k] || 0), 0);
+  const next = ps.filter(p => p.status === 'Scheduled').sort((a, b) => a.scheduled_at < b.scheduled_at ? -1 : 1)[0];
+  const set = (id, v) => { document.getElementById(id).textContent = v; };
+  set('t-live', live.length); set('t-total', ps.length); set('t-views', fmt(sum('views'))); set('t-likes', fmt(sum('likes')));
+  set('t-comments', fmt(sum('comments'))); set('t-followers', fmt(accts.reduce((s, a) => s + (a.followers || 0), 0)));
+  set('t-accounts', `${accts.length} account${accts.length === 1 ? '' : 's'}`);
+  set('t-next', next ? when(next.scheduled_at) : '—'); set('t-next-title', next ? next.title : 'Nothing scheduled');
+  const who = acct === ALL ? `Across ${accts.length} account${accts.length === 1 ? '' : 's'}, ` : `On ${acct}, `;
+  set('take', `${who}${live.length} of ${ps.length} posts are live with ${fmt(sum('views'))} views. ` + (next ? `Next up: "${next.title}" on ${when(next.scheduled_at)}.` : 'Nothing else is scheduled. Time for the next batch.'));
+  set('updated', meta.updated_at ? `Stats ${ago(meta.updated_at)} · refreshes every hour` : '');
+}
+
+function drawGoals() {
+  const { acct, accts, ps } = scope();
+  const box = document.getElementById('goals'); box.textContent = '';
+  accts.forEach(a => {
+    const views = posts.filter(p => p.account === a.account).reduce((s, p) => s + (p.views || 0), 0);
+    const wrap = el('div');
+    if (acct === ALL) { const h = el('div', 'goal-acct'); h.append(avatar(a, 24), el('span', null, `${a.account} · TikTok`)); wrap.appendChild(h); }
+    const pair = el('div', 'goal-pair');
+    [['Followers', a.followers || 0, 10000], ['Views (30 days)', views, 100000]].forEach(([label, v, goal]) => {
+      const g = el('div'); const top = el('div', 'goal-top'); const right = el('span'); const b = el('b', null, fmt(v)); right.append(b, document.createTextNode(` / ${fmt(goal)}`));
+      top.append(el('span', null, label), right);
+      const share = Math.min(1, v / goal); const bar = el('div', 'bar'); const f = el('div', 'fill'); f.style.width = (share * 100) + '%'; bar.appendChild(f);
+      g.append(top, bar, el('div', 'pct', `${(share * 100).toFixed(1)}% of the way · ${fmt(Math.max(0, goal - v))} to go`)); pair.appendChild(g);
+    });
+    wrap.appendChild(pair); box.appendChild(wrap);
+  });
+}
+
+function hbars(box, rows) {
+  box.textContent = '';
+  if (!rows.length) { box.appendChild(el('p', 'note', 'No posts are live yet.')); return; }
+  const max = Math.max(1, ...rows.map(r => r.value || 0));
+  rows.forEach(r => {
+    const row = el('div', 'hrow'); const k = el('div', 'k', r.label); k.title = r.label;
+    const t = el('div', 'track'); const b = el('div', 'b'); b.style.width = r.value == null ? '0' : `calc(${(r.value / max) * 100}% - 4rem)`; b.style.background = r.color;
+    t.append(b, el('span', 'v', r.text)); row.append(k, t); box.appendChild(row);
+  });
+}
+
+function drawCharts() {
+  const { acct, ps } = scope();
+  const extra = [...new Set(ps.map(p => p.genre))].filter(g => g && !GENRES.includes(g));
+  hbars(document.getElementById('genre-bars'), [...GENRES, ...extra].map((g, i) => {
+    const all = ps.filter(p => p.genre === g), live = all.filter(p => p.status === 'Live');
+    const avg = live.length ? Math.round(live.reduce((s, p) => s + (p.views || 0), 0) / live.length) : null;
+    return { label: g, value: avg, color: COLORS[i % COLORS.length], text: avg == null ? `No live posts · ${all.length - live.length} scheduled` : `${fmt(avg)} avg · ${live.length} live` };
+  }));
+  hbars(document.getElementById('post-bars'), ps.filter(p => p.status === 'Live').sort((a, b) => a.scheduled_at < b.scheduled_at ? -1 : 1)
+    .map(p => ({ label: `${acct === ALL && tracked().length > 1 ? p.account + ' ' : ''}#${p.post} ${p.title}`, value: p.views || 0, color: COLORS[0], text: `${fmt(p.views)} views · ${fmt(p.likes)} likes` })));
+}
+
+function drawTable() {
+  const { acct, ps } = scope();
+  const many = acct === ALL;
+  document.querySelectorAll('.acct-col').forEach(e => { e.hidden = !many; });
+  const tb = document.getElementById('rows'); tb.textContent = '';
+  ps.slice().sort((a, b) => a.scheduled_at < b.scheduled_at ? -1 : 1).forEach(p => {
+    const tr = el('tr'); const td = (t, c) => { const d = el('td', c, t); tr.appendChild(d); return d; };
+    const ac = td('', 'acct-col'); ac.hidden = !many; const who = el('span', 'who'); who.append(avatar(accounts.find(a => a.account === p.account), 20), el('span', null, p.account)); ac.appendChild(who);
+    td(String(p.post));
+    const t = td('', 't'); const a = el('a', null, p.title); a.href = p.url; a.target = '_blank'; a.rel = 'noopener'; t.append(a, el('span', 'q', p.caption_question));
+    if (p.last_error) t.appendChild(el('span', 'q err', "Couldn't read the latest numbers; showing the last ones."));
+    td(p.genre, 'opt'); td(when(p.scheduled_at));
+    const st = td(''); st.appendChild(el('span', 'pill ' + (p.status === 'Live' ? 'live' : 'sched'), p.status));
+    td(fmt(p.views), 'r'); td(fmt(p.likes), 'r opt'); td(fmt(p.comments), 'r opt');
+    tb.appendChild(tr);
+  });
+}
+
+const draw = () => { drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawTable(); };
+
+const btn = document.getElementById('acct-btn'), panel = document.getElementById('acct-panel');
+const open = (o) => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); };
+btn.addEventListener('click', () => open(panel.hidden));
+document.addEventListener('click', (e) => { if (!e.target.closest('#acct')) open(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false); });
+document.getElementById('acct-list').addEventListener('click', (e) => {
+  const it = e.target.closest('.acct-item'); if (!it) return;
+  current = it.dataset.account; try { localStorage.setItem('hq-account', current); } catch {}
+  open(false); draw();
+});
+
+async function load() {
+  const get = (f) => fetch(`data/${f}?t=${Date.now()}`, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(f); return r.json(); });
+  try { [accounts, posts, meta] = await Promise.all([get('accounts.json'), get('posts.json'), get('meta.json')]); draw(); }
+  catch (e) { document.getElementById('take').textContent = "Couldn't load the stats files. Try refreshing the page."; }
+}
+load();
+setInterval(load, 5 * 60 * 1000);
+</script>
+</body>
+</html>
