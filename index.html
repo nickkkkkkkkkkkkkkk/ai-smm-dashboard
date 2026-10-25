@@ -119,6 +119,25 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .refresh { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .r-sub { font-size: .75rem; color: var(--muted); padding-right: 4px; }
 .pill.wait { color: var(--warn); background: rgb(240 166 64 / .08); }
+.acct-row { display: flex; align-items: center; gap: 4px; }
+.acct-row .acct-item { flex: 1; min-width: 0; }
+.acct-more { flex: none; width: 34px; height: 34px; border-radius: 10px; border: 1px solid transparent; background: none; color: var(--muted); font: inherit; font-size: 1.1rem; cursor: pointer; }
+.acct-more:hover, .acct-more[aria-expanded="true"] { background: var(--panel-2); color: var(--fg); }
+.acct-manage { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 6px 50px; padding: 6px; border-radius: 12px; background: var(--panel-2); }
+.acct-manage a, .acct-add, .acct-restore { display: block; text-align: left; font: inherit; font-size: .88rem; color: var(--fg); text-decoration: none; background: none; border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer; width: 100%; }
+.acct-manage a:hover, .acct-add:hover, .acct-restore:hover { background: var(--track); }
+.acct-manage a.danger { color: #f87171; }
+.acct-add { font-weight: 600; color: var(--fg); margin-bottom: 4px; }
+.acct-form[hidden] { display: none; }
+.acct-form { display: flex; flex-direction: column; gap: 8px; padding: 4px 4px 10px; }
+.acct-form label { display: flex; flex-direction: column; gap: 4px; font-size: .8rem; color: var(--muted); }
+.acct-form input { font: inherit; font-size: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
+.acct-form input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.acct-go { font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 10px; padding: 10px; cursor: pointer; }
+.acct-removed-h { font-size: .75rem; color: var(--muted); margin: 6px 10px 2px; }
+.acct-restore { color: var(--muted); }
+.acct-how { margin: 6px 4px 2px !important; }
+.pending { font-size: .8rem; color: var(--warn); padding: 6px 10px; }
 @keyframes flash { from { color: var(--ok); } to { color: var(--fg); } }
 .tile .num.flash { animation: flash 2s ease-out; }
 @media (max-width: 40rem) { .refresh { align-items: flex-start; } }
@@ -132,11 +151,17 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
     <button type="button" class="acct-btn" id="acct-btn" aria-haspopup="true" aria-expanded="false">
       <span id="acct-av"></span><span class="lbl">Accounts</span><span class="cur" id="acct-cur">All accounts</span><span aria-hidden="true">▾</span>
     </button>
-    <div class="acct-panel" id="acct-panel" role="menu" hidden>
+    <div class="acct-panel" id="acct-panel" hidden>
       <div id="acct-list"></div>
       <div class="acct-foot">
-        <p><b>Add or remove an account:</b> ask Claude, or edit <code>data/accounts.json</code> in the repo. Stats fill in within about 10 minutes. Removing an account (tracking: "removed") hides it but keeps its history.</p>
-        <p><b>No logins here:</b> the updater only reads public TikTok pages, so this page never holds passwords.</p>
+        <button type="button" class="acct-add" id="acct-add-btn">＋ Add account</button>
+        <form class="acct-form" id="acct-form" hidden>
+          <label>TikTok handle<input id="f-handle" placeholder="@yourhandle" autocomplete="off" autocapitalize="off" spellcheck="false" required pattern="@?[A-Za-z0-9._]{2,24}"></label>
+          <label>Niche <span class="s">(optional)</span><input id="f-niche" placeholder="e.g. Roblox story time" maxlength="60"></label>
+          <button type="submit" class="acct-go">Add account</button>
+        </form>
+        <div id="acct-removed"></div>
+        <p class="acct-how">Changes open a short request on GitHub. Tap <b>Submit</b> there and the dashboard updates in about a minute. Sign in to TikTok itself in the TikTok app or Studio; this page never holds passwords.</p>
       </div>
     </div>
   </div>
@@ -212,19 +237,40 @@ const tracked = () => accounts.filter(a => a.tracking !== 'removed');
 const pick = () => (current !== ALL && tracked().some(a => a.account === current)) ? current : ALL;
 const scope = () => { const acct = pick(); const names = acct === ALL ? tracked().map(a => a.account) : [acct]; return { acct, accts: tracked().filter(a => names.includes(a.account)), ps: posts.filter(p => names.includes(p.account)) }; };
 
+// Account changes go through a pre-filled GitHub issue; .github/workflows/accounts.yml applies it.
+const REPO = (() => { const h = location.hostname.match(/^([^.]+)\.github\.io$/); const p = location.pathname.split('/').filter(Boolean)[0]; return h && p ? `${h[1]}/${p}` : 'nickkkkkkkkkkkkkkk/ai-smm-dashboard'; })();
+const issueUrl = (action, handle, niche) => `https://github.com/${REPO}/issues/new?` + new URLSearchParams({ title: `[account] ${action} ${handle}`, body: `niche: ${niche || ''}\n\nSubmit this to ${action} ${handle} on the Content HQ dashboard. It closes itself when done.` });
+const loadPending = () => { try { return JSON.parse(localStorage.getItem('hq-pending') || '[]'); } catch { return []; } };
+const savePending = (p) => { try { localStorage.setItem('hq-pending', JSON.stringify(p)); } catch {} };
+let managing = null;
+
 function drawPicker() {
   const acct = pick(), list = document.getElementById('acct-list');
   const item = (key, rec, h, s, st, bad) => {
+    const row = el('div', 'acct-row');
     const b = el('button', 'acct-item'); b.type = 'button'; b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', String(key === acct)); b.dataset.account = key;
     const who = el('span', 'who'); const txt = el('span'); txt.append(el('span', 'h', h), el('span', 's', s)); who.append(avatar(rec, 32), txt);
-    b.append(who, el('span', 'st' + (bad ? ' bad' : ''), st)); return b;
+    b.append(who, el('span', 'st' + (bad ? ' bad' : ''), st)); row.appendChild(b);
+    if (!rec) return [row];
+    const more = el('button', 'acct-more', '⋯'); more.type = 'button'; more.dataset.manage = key; more.setAttribute('aria-label', `Manage ${key}`); more.setAttribute('aria-expanded', String(managing === key));
+    row.appendChild(more);
+    if (managing !== key) return [row];
+    const m = el('div', 'acct-manage'); const link = (text, href, cls) => { const a = el('a', cls, text); a.href = href; a.target = '_blank'; a.rel = 'noopener'; m.appendChild(a); };
+    link('Open profile on TikTok ↗', `https://www.tiktok.com/${key}`);
+    link('Open TikTok Studio ↗', 'https://www.tiktok.com/tiktokstudio');
+    link('Remove from dashboard', issueUrl('remove', key), 'danger');
+    return [row, m];
   };
-  list.replaceChildren(item(ALL, null, 'All accounts', `${tracked().length} tracked`, '', false),
-    ...tracked().map(a => { const bad = a.last_update_status && a.last_update_status !== 'ok'; return item(a.account, a, a.account, ['TikTok', a.niche].filter(Boolean).join(' · '), bad ? "couldn't read" : ago(a.as_of), bad); }));
+  const pend = loadPending().filter(p => !accounts.some(a => a.account.toLowerCase() === p.handle.toLowerCase() && (a.tracking === 'removed') === (p.action === 'remove')) && Date.now() - p.at < 15 * 60000);
+  savePending(pend);
+  list.replaceChildren(...item(ALL, null, 'All accounts', `${tracked().length} tracked`, '', false),
+    ...tracked().flatMap(a => { const bad = a.last_update_status && !['ok', 'pending'].includes(a.last_update_status); return item(a.account, a, a.account, ['TikTok', a.niche].filter(Boolean).join(' · '), bad ? "couldn't read" : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
+    ...pend.map(p => el('div', 'pending', `${p.action === 'add' ? 'Adding' : p.action === 'remove' ? 'Removing' : 'Restoring'} ${p.handle}… shows here about a minute after you submit on GitHub`)));
+  const removed = accounts.filter(a => a.tracking === 'removed'), rbox = document.getElementById('acct-removed');
+  rbox.replaceChildren(...(removed.length ? [el('div', 'acct-removed-h', 'Removed accounts')] : []), ...removed.map(a => { const r = el('a', 'acct-restore', `Restore ${a.account}`); r.href = issueUrl('restore', a.account); r.target = '_blank'; r.rel = 'noopener'; r.dataset.pend = 'restore ' + a.account; return r; }));
   document.getElementById('acct-cur').textContent = acct === ALL ? 'All accounts' : acct;
   document.getElementById('acct-av').replaceChildren(avatar(acct === ALL ? null : tracked().find(a => a.account === acct), 28));
 }
-
 function drawTiles() {
   const { acct, accts, ps } = scope();
   const live = ps.filter(p => p.status === 'Live');
@@ -314,12 +360,30 @@ const draw = () => { drawRefresh(); drawPicker(); drawTiles(); drawGoals(); draw
 const btn = document.getElementById('acct-btn'), panel = document.getElementById('acct-panel');
 const open = (o) => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); };
 btn.addEventListener('click', () => open(panel.hidden));
-document.addEventListener('click', (e) => { if (!e.target.closest('#acct')) open(false); });
+document.addEventListener('click', (e) => { if (!e.composedPath().some(n => n.id === 'acct')) open(false); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false); });
 document.getElementById('acct-list').addEventListener('click', (e) => {
+  const mg = e.target.closest('.acct-more');
+  if (mg) { managing = managing === mg.dataset.manage ? null : mg.dataset.manage; drawPicker(); return; }
+  const rm = e.target.closest('a.danger');
+  if (rm) { const h = managing; savePending([...loadPending(), { action: 'remove', handle: h, at: Date.now() }]); managing = null; setTimeout(drawPicker, 0); return; }
   const it = e.target.closest('.acct-item'); if (!it) return;
   current = it.dataset.account; try { localStorage.setItem('hq-account', current); } catch {}
-  open(false); draw();
+  managing = null; open(false); draw();
+});
+document.getElementById('acct-removed').addEventListener('click', (e) => {
+  const r = e.target.closest('.acct-restore'); if (!r) return;
+  savePending([...loadPending(), { action: 'restore', handle: r.dataset.pend.split(' ')[1], at: Date.now() }]); setTimeout(drawPicker, 0);
+});
+const form = document.getElementById('acct-form');
+document.getElementById('acct-add-btn').addEventListener('click', () => { form.hidden = !form.hidden; if (!form.hidden) document.getElementById('f-handle').focus(); });
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const handle = '@' + document.getElementById('f-handle').value.trim().replace(/^@/, '');
+  const niche = document.getElementById('f-niche').value.trim();
+  window.open(issueUrl('add', handle, niche), '_blank', 'noopener');
+  savePending([...loadPending(), { action: 'add', handle, at: Date.now() }]);
+  form.reset(); form.hidden = true; drawPicker();
 });
 
 const get = (f) => fetch(`data/${f}?t=${Date.now()}`, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(f); return r.json(); });
