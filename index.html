@@ -111,6 +111,8 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .refresh { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .r-sub { font-size: .75rem; color: var(--muted); padding-right: 4px; }
 .pill.wait { color: var(--warn); background: rgb(240 166 64 / .08); }
+@keyframes flash { from { color: var(--ok); } to { color: var(--fg); } }
+.tile .num.flash { animation: flash 2s ease-out; }
 @media (max-width: 40rem) { .refresh { align-items: flex-start; } }
 @media (max-width: 40rem) { .tiles { grid-template-columns: 1fr 1fr; gap: 10px; } .tiles .tile:last-child { grid-column: 1 / -1; } .ico { display: none; } .card, .tile { padding: 18px; border-radius: 18px; } .card > .note { margin-inline: -18px; padding-inline: 18px; } }
 </style>
@@ -312,14 +314,23 @@ document.getElementById('acct-list').addEventListener('click', (e) => {
   open(false); draw();
 });
 
+const get = (f) => fetch(`data/${f}?t=${Date.now()}`, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(f); return r.json(); });
 async function load() {
-  const get = (f) => fetch(`data/${f}?t=${Date.now()}`, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(f); return r.json(); });
-  try { [accounts, posts, meta] = await Promise.all([get('accounts.json'), get('posts.json'), get('meta.json')]); draw(); }
-  catch (e) { document.getElementById('take').textContent = "Couldn't load the stats files. Try refreshing the page."; }
+  try {
+    const first = !meta.updated_at;
+    [accounts, posts, meta] = await Promise.all([get('accounts.json'), get('posts.json'), get('meta.json')]); draw();
+    if (!first) document.querySelectorAll('.tile .num').forEach(n => { n.classList.remove('flash'); void n.offsetWidth; n.classList.add('flash'); });
+  } catch (e) { if (!meta.updated_at) document.getElementById('take').textContent = "Couldn't load the stats files. Try refreshing the page."; }
+}
+// Poll the tiny meta.json and pull the full data only when a new update has landed.
+async function check() {
+  if (document.hidden) return;
+  try { const m = await get('meta.json'); if (m.updated_at !== meta.updated_at) await load(); } catch {}
 }
 load();
-setInterval(load, 2 * 60 * 1000);
+setInterval(check, 30 * 1000);
 setInterval(drawRefresh, 30 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { check(); drawRefresh(); } });
 </script>
 </body>
 </html>
