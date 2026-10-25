@@ -131,16 +131,9 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .acct-more { flex: none; width: 34px; height: 34px; border-radius: 10px; border: 1px solid transparent; background: none; color: var(--muted); font: inherit; font-size: 1.1rem; cursor: pointer; }
 .acct-more:hover, .acct-more[aria-expanded="true"] { background: var(--panel-2); color: var(--fg); }
 .acct-manage { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 6px 50px; padding: 6px; border-radius: 12px; background: var(--panel-2); }
-.acct-manage a, .acct-add, .acct-restore { display: block; text-align: left; font: inherit; font-size: .88rem; color: var(--fg); text-decoration: none; background: none; border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer; width: 100%; }
-.acct-manage a:hover, .acct-add:hover, .acct-restore:hover { background: var(--track); }
+.acct-manage a, .acct-restore { display: block; text-align: left; font: inherit; font-size: .88rem; color: var(--fg); text-decoration: none; background: none; border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer; width: 100%; }
+.acct-manage a:hover, .acct-restore:hover { background: var(--track); }
 .acct-manage a.danger { color: #f87171; }
-.acct-add { font-weight: 600; color: var(--fg); margin-bottom: 4px; }
-.acct-form[hidden] { display: none; }
-.acct-form { display: flex; flex-direction: column; gap: 8px; padding: 4px 4px 10px; }
-.acct-form label { display: flex; flex-direction: column; gap: 4px; font-size: .8rem; color: var(--muted); }
-.acct-form input { font: inherit; font-size: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
-.acct-form input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
-.acct-go { font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 10px; padding: 10px; cursor: pointer; }
 .acct-removed-h { font-size: .75rem; color: var(--muted); margin: 6px 10px 2px; }
 .acct-restore { color: var(--muted); }
 .acct-how { margin: 6px 4px 2px !important; }
@@ -198,14 +191,8 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
       <div id="acct-list"></div>
       <div class="acct-foot">
         <a class="acct-tt" href="/auth/tiktok/start">Sign in with TikTok</a>
-        <button type="button" class="acct-add" id="acct-add-btn">＋ Add account by handle</button>
-        <form class="acct-form" id="acct-form" hidden>
-          <label>TikTok handle<input id="f-handle" placeholder="@yourhandle" autocomplete="off" autocapitalize="off" spellcheck="false" required pattern="@?[A-Za-z0-9._]{2,24}"></label>
-          <label>Niche <span class="s">(optional)</span><input id="f-niche" placeholder="e.g. Roblox story time" maxlength="60"></label>
-          <button type="submit" class="acct-go">Add account</button>
-        </form>
         <div id="acct-removed"></div>
-        <p class="acct-how"><b>Sign in with TikTok</b> adds an account with official stats; TikTok handles the password, this page never sees it. Adding by handle opens a short request on GitHub: tap <b>Submit</b> there and the dashboard updates in about a minute.</p>
+        <p class="acct-how"><b>Sign in with TikTok</b> to add an account. TikTok handles the password; this page never sees it.</p>
       </div>
     </div>
   </div>
@@ -538,16 +525,6 @@ document.getElementById('acct-list').addEventListener('click', (e) => {
 document.getElementById('acct-removed').addEventListener('click', (e) => {
   const r = e.target.closest('.acct-restore'); if (!r) return;
   savePending([...loadPending(), { action: 'restore', handle: r.dataset.pend.split(' ')[1], at: Date.now() }]); setTimeout(drawPicker, 0);
-});
-const form = document.getElementById('acct-form');
-document.getElementById('acct-add-btn').addEventListener('click', () => { form.hidden = !form.hidden; if (!form.hidden) document.getElementById('f-handle').focus(); });
-form.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const handle = '@' + document.getElementById('f-handle').value.trim().replace(/^@/, '');
-  const niche = document.getElementById('f-niche').value.trim();
-  window.open(issueUrl('add', handle, niche), '_blank', 'noopener');
-  savePending([...loadPending(), { action: 'add', handle, at: Date.now() }]);
-  form.reset(); form.hidden = true; drawPicker();
 });
 
 // On github.io the data files sit next to the page. On Cloudflare (which isn't rebuilt for data-only
