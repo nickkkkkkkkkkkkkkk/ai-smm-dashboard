@@ -53,7 +53,7 @@ def profile(handle):
 def video(url):
     """Views, likes and comments for one public video via yt-dlp."""
     out = subprocess.run(
-        [sys.executable, "-m", "yt_dlp", "--dump-json", "--skip-download", "--no-warnings", url],
+        [sys.executable, "-m", "yt_dlp", "--impersonate", "chrome", "--dump-json", "--skip-download", "--no-warnings", url],
         capture_output=True, text=True, timeout=120)
     if out.returncode != 0:
         raise RuntimeError((out.stderr.strip().splitlines() or ["yt-dlp failed"])[-1][:200])
