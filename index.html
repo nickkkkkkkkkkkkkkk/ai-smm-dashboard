@@ -125,7 +125,7 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
     <div class="acct-panel" id="acct-panel" role="menu" hidden>
       <div id="acct-list"></div>
       <div class="acct-foot">
-        <p><b>Add or remove an account:</b> ask Claude, or edit <code>data/accounts.json</code> in the repo. Stats fill in on the next hourly update. Removing an account (tracking: "removed") hides it but keeps its history.</p>
+        <p><b>Add or remove an account:</b> ask Claude, or edit <code>data/accounts.json</code> in the repo. Stats fill in within about 10 minutes. Removing an account (tracking: "removed") hides it but keeps its history.</p>
         <p><b>No logins here:</b> the updater only reads public TikTok pages, so this page never holds passwords.</p>
       </div>
     </div>
@@ -288,11 +288,11 @@ function drawTable() {
   });
 }
 
-// GitHub runs the updater at :17 past each hour (often a few minutes late).
+// GitHub runs the updater every 10 minutes at :03, :13, ... (often a few minutes late).
 function drawRefresh() {
   const pill = document.getElementById('r-pill'), sub = document.getElementById('r-sub');
   const last = meta.updated_at ? new Date(meta.updated_at) : null;
-  const next = new Date(last || Date.now()); next.setUTCMinutes(17, 0, 0); if (next <= (last || new Date())) next.setUTCHours(next.getUTCHours() + 1);
+  const base = last || new Date(), next = new Date(base); next.setUTCSeconds(0, 0); next.setUTCMinutes(next.getUTCMinutes() + ((13 - next.getUTCMinutes() % 10) % 10 || 10));
   const mins = Math.ceil((next - Date.now()) / 60000);
   pill.className = 'pill ' + (mins > 0 ? 'live' : 'wait');
   pill.textContent = mins > 0 ? `Next refresh in ${mins} min` : 'Refreshing now…';
