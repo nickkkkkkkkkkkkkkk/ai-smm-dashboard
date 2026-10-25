@@ -292,10 +292,10 @@ function drawTable() {
 function drawRefresh() {
   const pill = document.getElementById('r-pill'), sub = document.getElementById('r-sub');
   const last = meta.updated_at ? new Date(meta.updated_at) : null;
-  const base = last || new Date(), next = new Date(base); next.setUTCSeconds(0, 0); next.setUTCMinutes(next.getUTCMinutes() + ((13 - next.getUTCMinutes() % 10) % 10 || 10));
-  const mins = Math.ceil((next - Date.now()) / 60000);
-  pill.className = 'pill ' + (mins > 0 ? 'live' : 'wait');
-  pill.textContent = mins > 0 ? `Next refresh in ${mins} min` : 'Refreshing now…';
+  const next = new Date(); next.setUTCSeconds(0, 0); next.setUTCMinutes(next.getUTCMinutes() + ((13 - next.getUTCMinutes() % 10) % 10 || 10));
+  const mins = Math.max(1, Math.ceil((next - Date.now()) / 60000));
+  pill.className = 'pill live';
+  pill.textContent = `Next refresh in ${mins} min`;
   sub.textContent = last ? 'Last ' + ago(meta.updated_at) : 'Not updated yet';
 }
 
