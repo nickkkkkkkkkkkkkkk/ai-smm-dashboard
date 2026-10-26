@@ -1,4 +1,4 @@
-"""Refresh data/accounts.json and data/posts.json from public TikTok pages.
+"""Refresh data/accounts.json and data/posts.json from public TikTok and YouTube pages.
 
 Runs in GitHub Actions on a timer (see .github/workflows/update.yml).
 Read-only: it only downloads public pages. If TikTok blocks a read, the
@@ -8,6 +8,10 @@ Scheduled posts have no URL until they go live (TikTok Studio gives none), so
 each run also lists the profile's videos and links new ones to the planned
 post with the closest caption. Videos that match no planned post are added
 as new posts, so the dashboard keeps up even if posts.json isn't updated.
+
+YouTube Shorts are planned with their exact times, so a live Short is linked to
+its planned post by title. Instagram has no public stats page we can read, so its
+posts only flip to Live at their scheduled time (stats stay empty).
 """
 import json
 import re
@@ -19,6 +23,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
+import xml.etree.ElementTree as ET_XML
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -96,6 +101,95 @@ def profile_videos(handle):
     return vids
 
 
+def key(rec):
+    return (rec.get("platform", "tiktok"), rec["account"])
+
+
+def count(text):
+    """'1.2K' -> 1200, '39' -> 39."""
+    m = re.match(r"([\d.,]+)\s*([KMB]?)", text.strip(), re.I)
+    if not m:
+        return 0
+    n = float(m.group(1).replace(",", ""))
+    return int(n * {"": 1, "K": 1e3, "M": 1e6, "B": 1e9}[m.group(2).upper()])
+
+
+def yt_channel(handle):
+    """Subscriber count, channel id and avatar url from the public channel page."""
+    html = requests.get(f"https://www.youtube.com/{handle}", headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"},
+                        timeout=30).text
+    cid = re.search(r'<meta itemprop="identifier" content="(UC[\w-]+)"', html)
+    subs = re.search(r'"([\d.,]+[KMB]?) subscribers?"', html)
+    if not cid:
+        raise RuntimeError("channel data not found (blocked or layout changed)")
+    av = re.search(r'<meta property="og:image" content="([^"]+)"', html)
+    return {"channel_id": cid.group(1), "followers": count(subs.group(1)) if subs else 0,
+            "avatar_url": av.group(1) if av else None}
+
+
+def yt_videos(handle, channel_id):
+    """Public Shorts with stats: the Shorts tab (views) plus the RSS feed (exact views, likes, post time)."""
+    vids = {}
+    out = subprocess.run(
+        [sys.executable, "-m", "yt_dlp", "--flat-playlist", "--dump-json", "--no-warnings",
+         f"https://www.youtube.com/{handle}/shorts"], capture_output=True, text=True, timeout=180)
+    for line in out.stdout.splitlines():
+        j = json.loads(line)
+        vids[j["id"]] = {"title": j.get("title") or "", "timestamp": None,
+                         "stats": {"views": int(j.get("view_count") or 0), "likes": 0, "comments": 0}}
+    feed = requests.get(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}", headers={"User-Agent": UA}, timeout=30)
+    if feed.ok:
+        ns = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015",
+              "m": "http://search.yahoo.com/mrss/"}
+        for e in ET_XML.fromstring(feed.content).findall("a:entry", ns):
+            vid = e.findtext("yt:videoId", namespaces=ns)
+            v = vids.setdefault(vid, {"title": e.findtext("a:title", namespaces=ns) or "", "timestamp": None,
+                                      "stats": {"views": 0, "likes": 0, "comments": 0}})
+            v["timestamp"] = datetime.fromisoformat(e.findtext("a:published", namespaces=ns)).timestamp()
+            st, rating = e.find("m:group/m:community/m:statistics", ns), e.find("m:group/m:community/m:starRating", ns)
+            if st is not None:
+                v["stats"]["views"] = max(v["stats"]["views"], int(st.get("views") or 0))
+            if rating is not None:
+                v["stats"]["likes"] = int(rating.get("count") or 0)
+    for vid, v in vids.items():
+        v["url"] = f"https://www.youtube.com/shorts/{vid}"
+        v["thumb"] = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+    if not vids and out.returncode != 0 and "does not have a shorts tab" not in out.stderr:
+        raise RuntimeError((out.stderr.strip().splitlines() or ["no shorts listed"])[-1][:200])
+    return vids
+
+
+def link_youtube(account, vids, posts):
+    """Give planned Shorts their URL by title; add any Short that isn't planned."""
+    mine = [p for p in posts if key(p) == ("youtube", account)]
+    known = {(p.get("url") or "").rsplit("/", 1)[-1] for p in mine if p.get("url")}
+    for vid, v in sorted(vids.items(), key=lambda kv: kv[1]["timestamp"] or 0):
+        if vid in known:
+            continue
+        best = max((p for p in mine if not p.get("url")), default=None,
+                   key=lambda p: SequenceMatcher(None, words(p["title"]), words(v["title"])).ratio())
+        if best and SequenceMatcher(None, words(best["title"]), words(v["title"])).ratio() >= 0.8:
+            best["url"] = v["url"]
+            print(f"youtube #{best['post']}: now live at {v['url']}")
+        elif v["timestamp"]:  # only Shorts we can date; untimed ones are old uploads
+            tags = re.findall(r"#\w+", v["title"].lower())
+            mine.append({"platform": "youtube", "account": account, "post": max((p["post"] for p in mine), default=0) + 1,
+                         "title": v["title"][:90] or "Untitled Short", "game": "", "caption_question": "",
+                         "scheduled_at": datetime.fromtimestamp(v["timestamp"], ET).isoformat(), "status": "Live",
+                         "views": 0, "likes": 0, "comments": 0, "url": v["url"],
+                         "genre": next((GENRE_TAGS[t] for t in tags if t in GENRE_TAGS), "Other")})
+            posts.append(mine[-1])
+            print(f"youtube #{mine[-1]['post']}: added unplanned Short {v['url']}")
+
+
+def save_avatar(a, url):
+    img = requests.get(url, headers={"User-Agent": UA}, timeout=30)
+    if img.ok and img.content:
+        name = a["account"].lstrip("@") + ("" if a.get("platform", "tiktok") == "tiktok" else "-" + a["platform"]) + ".jpg"
+        (AVATARS / name).write_bytes(img.content)
+        a["avatar"] = f"data/avatars/{name}"
+
+
 def words(caption):
     """A caption without hashtags, "(fictional story)" or punctuation, for comparing."""
     c = re.sub(r"#\S+|\(fictional story\)", " ", caption or "", flags=re.I)
@@ -106,7 +200,7 @@ def link_new_videos(account, vids, posts, stories):
     """Give planned posts their URL once they go live, and add any video that isn't planned."""
     known = {m.group(1) for p in posts if (m := re.search(r"/video/(\d+)", p.get("url") or ""))}
     fresh = {i: v for i, v in vids.items() if i not in known}
-    waiting = [p for p in posts if p["account"] == account and not p.get("url")]
+    waiting = [p for p in posts if key(p) == ("tiktok", account) and not p.get("url")]
     pairs = []
     for i, v in fresh.items():
         tags = set(re.findall(r"#\w+", v["caption"].lower()))
@@ -135,7 +229,8 @@ def link_new_videos(account, vids, posts, stories):
         tags = re.findall(r"#\w+", v["caption"].lower())
         title = re.sub(r"\s+", " ", re.sub(r"#\S+|\(fictional story\)", " ", v["caption"], flags=re.I)).strip()
         posts.append({
-            "platform": "tiktok", "account": account, "post": max((p["post"] for p in posts), default=0) + 1,
+            "platform": "tiktok", "account": account,
+            "post": max((p["post"] for p in posts if key(p) == ("tiktok", account)), default=0) + 1,
             "title": title[:90] or "Untitled video", "game": "", "caption_question": "",
             "scheduled_at": datetime.fromtimestamp(v["timestamp"] or 0, ET).isoformat(), "status": "Live",
             "views": 0, "likes": 0, "comments": 0, "url": v["url"],
@@ -146,7 +241,7 @@ def link_new_videos(account, vids, posts, stories):
 
 def save_thumb(url, thumb):
     """Keep one cover image per video at data/thumbs/<video id>.jpg (TikTok's own links expire)."""
-    m = re.search(r"/video/(\d+)", url)
+    m = re.search(r"/(?:video|shorts)/([\w-]+)", url)
     if not m or not thumb:
         return
     path = THUMBS / f"{m.group(1)}.jpg"
@@ -162,47 +257,60 @@ def main():
     accounts = load("accounts.json")
     posts = load("posts.json")
     stories = load("stories.json")
-    listed = {}
+    listed = {}  # (platform, video id) -> stats from the profile listings
     AVATARS.mkdir(parents=True, exist_ok=True)
     stamp = now_iso()
 
     for a in accounts:
-        if a.get("tracking") == "removed" or a.get("platform") != "tiktok":
+        plat = a.get("platform", "tiktok")
+        if a.get("tracking") == "removed" or plat not in ("tiktok", "youtube"):
             continue
         try:
-            p = profile(a["account"])
-            a.update({k: p[k] for k in ("followers", "following", "profile_likes")})
+            if plat == "tiktok":
+                p = profile(a["account"])
+                a.update({k: p[k] for k in ("followers", "following", "profile_likes")})
+            else:
+                p = yt_channel(a["account"])
+                a.update({"followers": p["followers"], "channel_id": p["channel_id"]})
             if p["avatar_url"]:
-                img = requests.get(p["avatar_url"], headers={"User-Agent": UA}, timeout=30)
-                if img.ok and img.content:
-                    name = a["account"].lstrip("@") + ".jpg"
-                    (AVATARS / name).write_bytes(img.content)
-                    a["avatar"] = f"data/avatars/{name}"
+                save_avatar(a, p["avatar_url"])
             a["last_update_status"] = "ok"
             a["as_of"] = stamp
-            print(f"{a['account']}: {p['followers']} followers")
+            a.pop("last_error", None)
+            print(f"{plat} {a['account']}: {p['followers']} followers")
         except Exception as e:  # keep old numbers
             a["last_update_status"] = "blocked"
             a["last_error"] = str(e)[:200]
-            print(f"{a['account']}: profile read failed: {e}")
+            print(f"{plat} {a['account']}: profile read failed: {e}")
         try:
-            vids = profile_videos(a["account"])
-            listed.update(vids)
-            link_new_videos(a["account"], vids, posts, stories)
+            if plat == "tiktok":
+                vids = profile_videos(a["account"])
+                link_new_videos(a["account"], vids, posts, stories)
+            else:
+                vids = yt_videos(a["account"], a["channel_id"]) if a.get("channel_id") else {}
+                link_youtube(a["account"], vids, posts)
+            listed.update({(plat, i): v for i, v in vids.items()})
         except Exception as e:  # posts with a URL are still read one by one below
-            print(f"{a['account']}: video list failed: {e}")
+            print(f"{plat} {a['account']}: video list failed: {e}")
 
-    tracked = {a["account"] for a in accounts if a.get("tracking") != "removed"}
+    tracked = {key(a) for a in accounts if a.get("tracking") != "removed"}
     now = datetime.now(timezone.utc)
     for p in posts:
-        if p["account"] not in tracked:
+        if key(p) not in tracked:
             continue
-        due = p.get("url") and p.get("scheduled_at") and datetime.fromisoformat(p["scheduled_at"]) <= now
-        if not due:
+        plat = p.get("platform", "tiktok")
+        started = p.get("scheduled_at") and datetime.fromisoformat(p["scheduled_at"]) <= now
+        if plat == "instagram":  # no stats source yet: live once its time has passed
+            p["status"] = "Live" if started else "Scheduled"
+            continue
+        if not (p.get("url") and started):
             p["status"] = "Scheduled"
             continue
         try:
-            v = listed.get(re.search(r"/video/(\d+)", p["url"]).group(1))
+            vid = re.search(r"/(?:video|shorts)/([\w-]+)", p["url"]).group(1)
+            v = listed.get((plat, vid))
+            if not v and plat == "youtube":
+                raise RuntimeError("not in the channel's Shorts list")
             stats, thumb = (v["stats"], v["thumb"]) if v else video(p["url"])
             p.update(stats)
             try:
@@ -212,11 +320,11 @@ def main():
             p["status"] = "Live"
             p["as_of"] = stamp
             p.pop("last_error", None)
-            print(f"#{p['post']}: {p['views']} views")
+            print(f"{plat} #{p['post']}: {p['views']} views")
         except Exception as e:
             p["status"] = "Live"
             p["last_error"] = str(e)[:200]
-            print(f"#{p['post']}: read failed: {e}")
+            print(f"{plat} #{p['post']}: read failed: {e}")
 
     save("accounts.json", accounts)
     save("posts.json", posts)

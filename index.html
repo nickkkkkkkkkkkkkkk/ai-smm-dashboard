@@ -219,8 +219,8 @@ body.all-accounts #t-next-tile, body.all-accounts section.card { display: none; 
   </section>
 
   <section class="card" id="rewards">
-    <h2>Road to Creator Rewards</h2>
-    <p class="note">TikTok's bar to join, per account: 10,000 followers and 100,000 views in the last 30 days.</p>
+    <h2>Road to monetization</h2>
+    <p class="note">Each platform's bar to start paying, per account. TikTok Creator Rewards: 10,000 followers and 100,000 views in 30 days. YouTube Partner Program: 1,000 subscribers and 10 million Shorts views in 90 days. Instagram has no public bar (its bonuses are invite-only).</p>
     <div class="goals" id="goals"></div>
   </section>
 
@@ -271,6 +271,15 @@ const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
 let accounts = [], posts = [], meta = {}, stories = [];
+// The same handle can exist on several platforms, so accounts and posts are keyed by both.
+const PLAT = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' };
+const plat = (r) => (r && r.platform) || 'tiktok';
+const ak = (r) => `${plat(r)}:${r.account}`;
+const label = (r) => `${r.account} · ${PLAT[plat(r)] || plat(r)}`;
+// Instagram has no public stats we can read yet, so its posts carry no numbers.
+const NO_STATS = new Set(['instagram']);
+const hasStats = (r) => !NO_STATS.has(plat(r));
+const profileUrl = (a) => ({ youtube: `https://www.youtube.com/${a.account}`, instagram: `https://www.instagram.com/${a.account.replace('@', '')}/` })[plat(a)] || `https://www.tiktok.com/${a.account}`;
 let base = { accounts: [], posts: [] }, tt = null;
 let current = (() => { try { return localStorage.getItem('hq-account') || ALL; } catch { return ALL; } })();
 
@@ -284,12 +293,13 @@ const avatar = (a, size) => {
 };
 
 const tracked = () => accounts.filter(a => a.tracking !== 'removed');
-const pick = () => (current !== ALL && tracked().some(a => a.account === current)) ? current : ALL;
-const scope = () => { const acct = pick(); const names = acct === ALL ? tracked().map(a => a.account) : [acct]; return { acct, accts: tracked().filter(a => names.includes(a.account)), ps: posts.filter(p => names.includes(p.account)) }; };
+const pick = () => (current !== ALL && tracked().some(a => ak(a) === current)) ? current : ALL;
+const byKey = (k) => accounts.find(a => ak(a) === k);
+const scope = () => { const acct = pick(); const keys = acct === ALL ? tracked().map(ak) : [acct]; return { acct, accts: tracked().filter(a => keys.includes(ak(a))), ps: posts.filter(p => keys.includes(ak(p))) }; };
 
 // Account changes go through a pre-filled GitHub issue; .github/workflows/accounts.yml applies it.
 const REPO = (() => { const h = location.hostname.match(/^([^.]+)\.github\.io$/); const p = location.pathname.split('/').filter(Boolean)[0]; return h && p ? `${h[1]}/${p}` : 'nickkkkkkkkkkkkkkk/ai-smm-dashboard'; })();
-const issueUrl = (action, handle, niche) => `https://github.com/${REPO}/issues/new?` + new URLSearchParams({ title: `[account] ${action} ${handle}`, body: `niche: ${niche || ''}\n\nSubmit this to ${action} ${handle} on the Content HQ dashboard. It closes itself when done.` });
+const issueUrl = (action, handle, niche, platform) => `https://github.com/${REPO}/issues/new?` + new URLSearchParams({ title: `[account] ${action} ${handle}${platform && platform !== 'tiktok' ? ' ' + platform : ''}`, body: `niche: ${niche || ''}\n\nSubmit this to ${action} ${handle} on the Content HQ dashboard. It closes itself when done.` });
 const loadPending = () => { try { return JSON.parse(localStorage.getItem('hq-pending') || '[]'); } catch { return []; } };
 const savePending = (p) => { try { localStorage.setItem('hq-pending', JSON.stringify(p)); } catch {} };
 let managing = null;
@@ -302,33 +312,36 @@ function drawPicker() {
     const who = el('span', 'who'); const txt = el('span'); txt.append(el('span', 'h', h), el('span', 's', s)); who.append(avatar(rec, 32), txt);
     b.append(who, el('span', 'st' + (bad ? ' bad' : ''), st)); row.appendChild(b);
     if (!rec) return [row];
-    const more = el('button', 'acct-more', '⋯'); more.type = 'button'; more.dataset.manage = key; more.setAttribute('aria-label', `Manage ${key}`); more.setAttribute('aria-expanded', String(managing === key));
+    const more = el('button', 'acct-more', '⋯'); more.type = 'button'; more.dataset.manage = key; more.setAttribute('aria-label', `Manage ${label(rec)}`); more.setAttribute('aria-expanded', String(managing === key));
     row.appendChild(more);
     if (managing !== key) return [row];
     const m = el('div', 'acct-manage'); const link = (text, href, cls) => { const a = el('a', cls, text); a.href = href; a.target = '_blank'; a.rel = 'noopener'; m.appendChild(a); };
-    if (rec.open_id) {
+    if (plat(rec) !== 'tiktok') {
+      link(`Open on ${PLAT[plat(rec)]}`, profileUrl(rec));
+      link('Remove from dashboard', issueUrl('remove', rec.account, '', plat(rec)), 'danger');
+    } else if (rec.open_id) {
       const f = el('form'); f.method = 'post'; f.action = '/auth/tiktok/disconnect';
       const id = el('input'); id.type = 'hidden'; id.name = 'open_id'; id.value = rec.open_id;
       f.append(id, el('button', null, 'Remove account'));
-      f.addEventListener('submit', (e) => { if (!confirm(`Remove ${key} from the dashboard? Sign in with TikTok again any time to bring it back.`)) e.preventDefault(); });
+      f.addEventListener('submit', (e) => { if (!confirm(`Remove ${rec.account} from the dashboard? Sign in with TikTok again any time to bring it back.`)) e.preventDefault(); });
       if (rec.connected === 'reconnect') link('Sign in with TikTok again', '/auth/tiktok/start');
       m.appendChild(f);
     } else {
       link('Sign in with TikTok for official stats', '/auth/tiktok/start');
       // A signed-in account always shows, so it is removed by disconnecting instead.
-      link('Remove from dashboard', issueUrl('remove', key), 'danger');
+      link('Remove from dashboard', issueUrl('remove', rec.account), 'danger');
     }
     return [row, m];
   };
   const pend = loadPending().filter(p => !accounts.some(a => a.account.toLowerCase() === p.handle.toLowerCase() && (a.tracking === 'removed') === (p.action === 'remove')) && Date.now() - p.at < 15 * 60000);
   savePending(pend);
   list.replaceChildren(...item(ALL, null, 'All accounts', `${tracked().length} tracked`, '', false),
-    ...tracked().flatMap(a => { const bad = a.connected === 'reconnect' || (a.last_update_status && !['ok', 'pending'].includes(a.last_update_status)); return item(a.account, a, a.account, [a.open_id ? 'TikTok · signed in' : 'TikTok', a.niche].filter(Boolean).join(' · '), a.connected === 'reconnect' ? 'sign in again' : bad ? "couldn't read" : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
+    ...tracked().flatMap(a => { const bad = a.connected === 'reconnect' || (a.last_update_status && !['ok', 'pending'].includes(a.last_update_status)); return item(ak(a), a, a.account, [PLAT[plat(a)] + (a.open_id ? ' · signed in' : ''), a.niche].filter(Boolean).join(' · '), !hasStats(a) ? 'schedule only' : a.connected === 'reconnect' ? 'sign in again' : bad ? "couldn't read" : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
     ...pend.map(p => el('div', 'pending', `${p.action === 'add' ? 'Adding' : p.action === 'remove' ? 'Removing' : 'Restoring'} ${p.handle}… shows here about a minute after you submit on GitHub`)));
   const removed = accounts.filter(a => a.tracking === 'removed'), rbox = document.getElementById('acct-removed');
-  rbox.replaceChildren(...(removed.length ? [el('div', 'acct-removed-h', 'Removed accounts')] : []), ...removed.map(a => { const r = el('a', 'acct-restore', `Restore ${a.account} (sign in with TikTok)`); r.href = '/auth/tiktok/start'; return r; }));
-  document.getElementById('acct-cur').textContent = acct === ALL ? 'All accounts' : acct;
-  document.getElementById('acct-av').replaceChildren(avatar(acct === ALL ? null : tracked().find(a => a.account === acct), 32));
+  rbox.replaceChildren(...(removed.length ? [el('div', 'acct-removed-h', 'Removed accounts')] : []), ...removed.map(a => { const tt = plat(a) === 'tiktok'; const r = el('a', 'acct-restore', tt ? `Restore ${a.account} (sign in with TikTok)` : `Restore ${label(a)}`); r.href = tt ? '/auth/tiktok/start' : issueUrl('restore', a.account, '', plat(a)); if (!tt) { r.target = '_blank'; r.rel = 'noopener'; } return r; }));
+  document.getElementById('acct-cur').textContent = acct === ALL ? 'All accounts' : label(byKey(acct));
+  document.getElementById('acct-av').replaceChildren(avatar(acct === ALL ? null : byKey(acct), 32));
 }
 function drawTiles() {
   const { acct, accts, ps } = scope();
@@ -347,19 +360,25 @@ function drawTiles() {
   // One profile: show who it follows; the account count only means something across accounts.
   set('t-accounts', acct === ALL ? `${accts.length} account${accts.length === 1 ? '' : 's'}` : `${fmt(accts.reduce((s, a) => s + (a.following || 0), 0))} following`);
   set('t-next', next ? when(next.scheduled_at) : '—'); set('t-next-title', next ? next.title : 'Nothing scheduled');
-  const who = acct === ALL ? `Across ${accts.length} account${accts.length === 1 ? '' : 's'}, ` : `On ${acct}, `;
-  set('take', `${who}${live.length} of ${ps.length} posts are live with ${fmt(sum('views'))} views. ` + (next ? `Next up: ${next.slot ? 'one of the scheduled videos' : `"${next.title}"`} on ${when(next.scheduled_at)}.` : 'Nothing else is scheduled. Time for the next batch.'));
+  const who = acct === ALL ? `Across ${accts.length} account${accts.length === 1 ? '' : 's'}, ` : `On ${label(byKey(acct))}, `;
+  const counted = accts.some(hasStats);
+  set('take', `${who}${live.length} of ${ps.length} posts are live${counted ? ` with ${fmt(sum('views'))} views` : ' (views aren\'t tracked here yet)'}. ` + (next ? `Next up: ${next.slot ? 'one of the scheduled videos' : `"${next.title}"`} on ${when(next.scheduled_at)}.` : 'Nothing else is scheduled. Time for the next batch.'));
 }
 
 function drawGoals() {
   const { acct, accts, ps } = scope();
   const box = document.getElementById('goals'); box.textContent = '';
   accts.forEach(a => {
-    const views = posts.filter(p => p.account === a.account).reduce((s, p) => s + (p.views || 0), 0);
+    // Views over the platform's window, counted by post time.
+    const views = (days) => posts.filter(p => ak(p) === ak(a) && p.status === 'Live' && Date.now() - new Date(p.scheduled_at) <= days * 864e5).reduce((s, p) => s + (p.views || 0), 0);
+    const goals = { tiktok: [['Followers', a.followers || 0, 10000], ['Views (30 days)', views(30), 100000]],
+      youtube: [['Subscribers', a.followers || 0, 1000], ['Shorts views (90 days)', views(90), 10000000]],
+    }[plat(a)] || [];
     const wrap = el('div');
-    if (acct === ALL) { const h = el('div', 'goal-acct'); h.append(avatar(a, 24), el('span', null, `${a.account} · TikTok`)); wrap.appendChild(h); }
+    if (acct === ALL) { const h = el('div', 'goal-acct'); h.append(avatar(a, 24), el('span', null, label(a))); wrap.appendChild(h); }
+    if (!goals.length) wrap.appendChild(el('p', 'note', `${PLAT[plat(a)]} stats aren't connected yet, so there's nothing to measure here.`));
     const pair = el('div', 'goal-pair');
-    [['Followers', a.followers || 0, 10000], ['Views (30 days)', views, 100000]].forEach(([label, v, goal]) => {
+    goals.forEach(([label, v, goal]) => {
       const g = el('div'); const top = el('div', 'goal-top'); const right = el('span'); const b = el('b', null, fmt(v)); right.append(b, document.createTextNode(` / ${fmt(goal)}`));
       top.append(el('span', null, label), right);
       const share = Math.min(1, v / goal); const bar = el('div', 'bar'); const f = el('div', 'fill'); f.style.width = (share * 100) + '%'; bar.appendChild(f);
@@ -381,7 +400,8 @@ function hbars(box, rows) {
 }
 
 function drawCharts() {
-  const { acct, ps } = scope();
+  let { acct, ps } = scope();
+  ps = ps.filter(hasStats);
   const extra = [...new Set(ps.map(p => p.genre))].filter(g => g && !GENRES.includes(g));
   hbars(document.getElementById('genre-bars'), [...GENRES, ...extra].map((g, i) => {
     const all = ps.filter(p => p.genre === g), live = all.filter(p => p.status === 'Live');
@@ -389,7 +409,7 @@ function drawCharts() {
     return { label: g, value: avg, color: COLORS[i % COLORS.length], text: avg == null ? `No live posts · ${all.length - live.length} scheduled` : `${fmt(avg)} avg · ${live.length} live` };
   }));
   hbars(document.getElementById('post-bars'), ps.filter(p => p.status === 'Live').sort(byTime)
-    .map(p => ({ label: `${acct === ALL && tracked().length > 1 ? p.account + ' ' : ''}#${p.post} ${p.title}`, value: p.views || 0, color: COLORS[0], text: `${fmt(p.views)} views · ${fmt(p.likes)} likes` })));
+    .filter(hasStats).map(p => ({ label: `${acct === ALL && tracked().length > 1 ? PLAT[plat(p)] + ' ' : ''}#${p.post} ${p.title}`, value: p.views || 0, color: COLORS[0], text: `${fmt(p.views)} views · ${fmt(p.likes)} likes` })));
 }
 
 // Story details per video (data/stories.json): first spoken line ("hook") and renderer style.
@@ -406,25 +426,25 @@ function hookCheck(h) {
 function drawInsights() {
   const { acct, ps } = scope();
   const story = (p) => stories.find(x => (x.url && x.url === p.url) || (x.account === p.account && x.post === p.post));
-  const live = ps.filter(p => p.status === 'Live').map(p => ({ ...p, ...(story(p) || {}), url: p.url, hours: Math.max(0, (Date.now() - new Date(p.scheduled_at)) / 3600000) }));
+  const live = ps.filter(p => p.status === 'Live' && hasStats(p)).map(p => ({ ...p, ...(story(p) || {}), url: p.url, platform: plat(p), hours: Math.max(0, (Date.now() - new Date(p.scheduled_at)) / 3600000) }));
   const sum = document.getElementById('ins-sum'), list = document.getElementById('ins-list');
   list.textContent = '';
   if (!live.length) { sum.textContent = 'Nothing is live yet. Insights show up once the first post has been up for a few hours.'; hbars(document.getElementById('style-bars'), []); return; }
   const rows = live.map(p => {
     // Compare with the same account's other live posts, so one big hit doesn't hide behind its own number.
-    const others = live.filter(o => o.account === p.account && o.url !== p.url);
+    const others = live.filter(o => ak(o) === ak(p) && o.url !== p.url);
     const avg = others.length ? others.reduce((s, o) => s + (o.views || 0), 0) / others.length : null;
     const ratio = avg ? (p.views || 0) / avg : null;
     const likeRate = p.views ? (p.likes || 0) / p.views : 0;
     const hook = hookCheck(p.hook);
     let flag, cls, tip;
-    if (p.hours < 6) { flag = 'Too early'; cls = 'sched'; tip = `Up ${p.hours < 1 ? 'under an hour' : Math.floor(p.hours) + ' h'}. TikTok is still testing it on small audiences, so check back later.`;
+    if (p.hours < 6) { flag = 'Too early'; cls = 'sched'; tip = `Up ${p.hours < 1 ? 'under an hour' : Math.floor(p.hours) + ' h'}. ${PLAT[p.platform]} is still testing it on small audiences, so check back later.`;
       if (ratio != null && ratio < 0.25 && p.hours >= 2) tip += ' Early sign: it is well behind the others' + (hook && !hook.ok ? `, and its first line ${hook.why}.` : '.'); }
     else if (ratio == null) { flag = 'First post'; cls = 'mid'; tip = 'Nothing to compare with yet. The next few posts set the account average.'; }
     else if (ratio < 0.5) {
       flag = 'Underperforming'; cls = 'bad';
       tip = hook && !hook.ok ? `The first line ${hook.why}. Viewers decide in about 2 seconds, so lead with the payoff, like the best performer does.`
-        : 'The hook reads fine, so check where viewers swiped away in TikTok Studio (Analytics, then this video). An early drop means the opening visuals or title card; a late drop means the middle drags.';
+        : `The hook reads fine, so check where viewers swiped away in ${p.platform === 'youtube' ? 'YouTube Studio' : 'TikTok Studio'} (Analytics, then this video). An early drop means the opening visuals or title card; a late drop means the middle drags.`;
     } else if (ratio >= 1.5) { flag = 'Winner'; cls = 'good'; tip = `Make more like this: ${p.genre ? p.genre.toLowerCase() + ', ' : ''}${p.game || 'same game'}, and the same hook shape.`; }
     else { flag = 'On par'; cls = 'mid'; tip = hook && !hook.ok ? `Doing fine, but the first line ${hook.why}. A sharper opener could push it higher.` : 'In line with the account. Nothing to fix.'; }
     if (p.hours >= 6 && p.views >= 200 && likeRate < 0.03) tip += ' Few viewers liked it, so the ending may not pay off; end on a twist or a question.';
@@ -439,7 +459,7 @@ function drawInsights() {
   const groups = Object.keys(STYLE).map((k, i) => { const g = live.filter(p => (p.style || 'v2') === k); return { label: STYLE[k], value: g.length ? Math.round(g.reduce((s, p) => s + (p.views || 0), 0) / g.length) : null, color: COLORS[i], text: g.length ? `${fmt(Math.round(g.reduce((s, p) => s + (p.views || 0), 0) / g.length))} avg views · ${g.length} live` : 'No posts live yet' }; });
   hbars(document.getElementById('style-bars'), groups);
   rows.sort((a, b) => b.p.scheduled_at < a.p.scheduled_at ? -1 : 1).forEach(({ p, ratio, likeRate, flag, cls, tip, hook }) => {
-    const c = el('div', 'ins'); const top = el('div', 'ins-top'); const a = el('a', null, `${acct === ALL && tracked().length > 1 ? p.account + ' ' : ''}#${p.post} ${p.title}`); a.href = p.url; a.target = '_blank'; a.rel = 'noopener';
+    const c = el('div', 'ins'); const top = el('div', 'ins-top'); const a = el('a', null, `${acct === ALL && tracked().length > 1 ? PLAT[p.platform] + ' ' : ''}#${p.post} ${p.title}`); a.href = p.url; a.target = '_blank'; a.rel = 'noopener';
     top.append(a, el('span', 'pill ' + cls, flag));
     const vph = p.hours >= 1 ? ` · ${fmt(Math.round((p.views || 0) / p.hours))}/h` : '';
     c.append(top, el('div', 'ins-stats', `${fmt(p.views)} views${vph} · ${ratio == null ? 'no average yet' : ratio.toFixed(ratio < 1 ? 2 : 1) + '× the others'} · ${(likeRate * 100).toFixed(1)}% liked · ${fmt(p.comments)} comments · up ${p.hours < 1 ? '<1' : Math.floor(p.hours)} h`));
@@ -451,12 +471,12 @@ function drawInsights() {
 
 // Content page (#content): every live video with its cover. Covers are saved by scripts/update.py
 // as data/thumbs/<video id>.jpg because TikTok's own image links expire.
-const vidId = (url) => ((url || '').match(/video\/(\d+)/) || [])[1];
+const vidId = (url) => ((url || '').match(/(?:video|shorts)\/([\w-]+)/) || [])[1];
 function drawContent() {
   const { acct, ps } = scope();
-  const live = ps.filter(p => p.status === 'Live').sort((a, b) => a.scheduled_at < b.scheduled_at ? 1 : -1);
+  const live = ps.filter(p => p.status === 'Live' && p.url).sort((a, b) => a.scheduled_at < b.scheduled_at ? 1 : -1);
   const views = live.reduce((s, p) => s + (p.views || 0), 0);
-  document.getElementById('c-take').textContent = live.length ? `${live.length} live video${live.length === 1 ? '' : 's'} with ${fmt(views)} views, newest first. Tap one to open it on TikTok.` : 'No videos are live yet.';
+  document.getElementById('c-take').textContent = live.length ? `${live.length} live video${live.length === 1 ? '' : 's'} with ${fmt(views)} views, newest first. Tap one to open it.` : 'No videos are live yet.';
   const grid = document.getElementById('c-grid');
   grid.replaceChildren(...live.map(p => {
     const a = el('a', 'vid'); a.href = p.url; a.target = '_blank'; a.rel = 'noopener';
@@ -466,7 +486,7 @@ function drawContent() {
     if (p.genre) th.appendChild(el('span', 'gen', p.genre));
     th.appendChild(el('span', 'views', `▶ ${fmt(p.views)}`));
     const b = el('div', 'body');
-    b.append(el('div', 'tt', `${acct === ALL && tracked().length > 1 ? p.account + ' · ' : ''}#${p.post} ${p.title}`),
+    b.append(el('div', 'tt', `${acct === ALL && tracked().length > 1 ? PLAT[plat(p)] + ' · ' : ''}#${p.post} ${p.title}`),
       el('div', 'meta', `${fmt(p.likes)} likes · ${fmt(p.comments)} comments${p.views ? ` · ${((p.likes || 0) / p.views * 100).toFixed(1)}% liked` : ''}`),
       el('div', 'meta', `Posted ${when(p.scheduled_at)}${p.game ? ' · ' + p.game : ''}`));
     a.append(th, b); return a;
@@ -491,13 +511,14 @@ function drawTable() {
   const tb = document.getElementById('rows'); tb.textContent = '';
   ps.slice().sort(byTime).forEach(p => {
     const tr = el('tr'); const td = (t, c) => { const d = el('td', c, t); tr.appendChild(d); return d; };
-    const ac = td('', 'acct-col'); ac.hidden = !many; const who = el('span', 'who'); who.append(avatar(accounts.find(a => a.account === p.account), 20), el('span', null, p.account)); ac.appendChild(who);
+    const ac = td('', 'acct-col'); ac.hidden = !many; const who = el('span', 'who'); who.append(avatar(byKey(ak(p)), 20), el('span', null, label(p))); ac.appendChild(who);
     td(String(p.post));
     const t = td('', 't'); const a = el(p.url ? 'a' : 'span', null, p.title); if (p.url) { a.href = p.url; a.target = '_blank'; a.rel = 'noopener'; } t.append(a, el('span', 'q', p.caption_question));
     if (p.last_error) t.appendChild(el('span', 'q err', "Couldn't read the latest numbers; showing the last ones."));
     td(p.genre, 'opt'); td(when(p.scheduled_at));
     const st = td(''); st.appendChild(el('span', 'pill ' + (p.status === 'Live' ? 'live' : 'sched'), p.status));
-    td(fmt(p.views), 'r'); td(fmt(p.likes), 'r opt'); td(fmt(p.comments), 'r opt');
+    const n = (v) => hasStats(p) ? fmt(v) : '—';
+    td(n(p.views), 'r'); td(n(p.likes), 'r opt'); td(n(p.comments), 'r opt');
     tb.appendChild(tr);
   });
 }
@@ -526,7 +547,7 @@ document.getElementById('acct-list').addEventListener('click', (e) => {
   const mg = e.target.closest('.acct-more');
   if (mg) { managing = managing === mg.dataset.manage ? null : mg.dataset.manage; drawPicker(); return; }
   const rm = e.target.closest('a.danger');
-  if (rm) { const h = managing; savePending([...loadPending(), { action: 'remove', handle: h, at: Date.now() }]); managing = null; setTimeout(drawPicker, 0); return; }
+  if (rm) { const h = (byKey(managing) || {}).account || managing; savePending([...loadPending(), { action: 'remove', handle: h, at: Date.now() }]); managing = null; setTimeout(drawPicker, 0); return; }
   const it = e.target.closest('.acct-item'); if (!it) return;
   current = it.dataset.account; try { localStorage.setItem('hq-account', current); } catch {}
   managing = null; open(false); draw();
@@ -545,25 +566,25 @@ function merge() {
   accounts = base.accounts.map(a => ({ ...a })); posts = base.posts.map(p => ({ ...p }));
   if (!tt) return;
   tt.accounts.filter(t => t.account).forEach(t => {
-    let a = accounts.find(x => x.account.toLowerCase() === t.account.toLowerCase());
+    let a = accounts.find(x => plat(x) === 'tiktok' && x.account.toLowerCase() === t.account.toLowerCase());
     if (!a) { a = { platform: 'tiktok', account: t.account, niche: '', tracking: 'active' }; accounts.push(a); }
     // Signing in means "track this account", even if it was removed from the list before.
     Object.assign(a, { open_id: t.open_id, connected: t.status, avatar_url: t.avatar_url, tracking: 'active' });
     if (t.status === 'ok') Object.assign(a, { followers: t.followers, following: t.following, profile_likes: t.profile_likes, as_of: t.as_of, last_update_status: 'ok' });
   });
   // Accounts removed through "Remove account" stay hidden until they sign in again.
-  (tt.hidden || []).forEach(h => accounts.filter(x => !x.open_id && x.account.toLowerCase() === h).forEach(x => { x.tracking = 'removed'; }));
+  (tt.hidden || []).forEach(h => accounts.filter(x => plat(x) === 'tiktok' && !x.open_id && x.account.toLowerCase() === h).forEach(x => { x.tracking = 'removed'; }));
   // Until the updater links a planned post to its live video, match the official list by caption.
   const owner = Object.fromEntries(tt.accounts.filter(t => t.account).map(t => [t.open_id, t.account.toLowerCase()]));
   const words = (c) => (c || '').replace(/#\S+|\(fictional story\)/gi, ' ').toLowerCase().replace(/[^a-z0-9' ]/g, ' ').split(/\s+/).filter(Boolean).join(' ');
   const known = new Set(posts.map(p => vidId(p.url)).filter(Boolean));
-  posts.filter(p => !p.url && p.caption_question).forEach(p => {
+  posts.filter(p => plat(p) === 'tiktok' && !p.url && p.caption_question).forEach(p => {
     const hit = Object.entries(tt.videos).find(([id, v]) => !known.has(id) && owner[v.open_id] === p.account.toLowerCase() && words(v.title).includes(words(p.caption_question)));
     if (!hit) return;
     known.add(hit[0]);
     Object.assign(p, { url: `https://www.tiktok.com/${p.account}/video/${hit[0]}`, scheduled_at: new Date(hit[1].created * 1000).toISOString(), status: 'Live' });
   });
-  posts.forEach(p => { const v = tt.videos[((p.url || '').match(/video\/(\d+)/) || [])[1]]; if (v) Object.assign(p, { views: v.views, likes: v.likes, comments: v.comments, shares: v.shares, last_error: null }); });
+  posts.filter(p => plat(p) === 'tiktok').forEach(p => { const v = tt.videos[((p.url || '').match(/video\/(\d+)/) || [])[1]]; if (v) Object.assign(p, { views: v.views, likes: v.likes, comments: v.comments, shares: v.shares, last_error: null }); });
 }
 const flash = () => document.querySelectorAll('.tile .num').forEach(n => { n.classList.remove('flash'); void n.offsetWidth; n.classList.add('flash'); });
 async function load() {

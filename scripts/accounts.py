@@ -1,7 +1,8 @@
 """Add, remove or restore a tracked account from a GitHub issue.
 
 The dashboard's Accounts menu opens a pre-filled issue titled
-"[account] add @handle", "[account] remove @handle" or "[account] restore @handle".
+"[account] add @handle", "[account] remove @handle" or "[account] restore @handle",
+optionally followed by the platform (tiktok, youtube or instagram; tiktok if left out).
 .github/workflows/accounts.yml runs this on the repo owner's issues only.
 """
 import json
@@ -19,22 +20,23 @@ def say(msg):
 
 
 def main():
-    m = re.match(r"\[account\]\s+(add|remove|restore)\s+@?([A-Za-z0-9._]{2,24})\s*$", os.environ.get("TITLE", "").strip(), re.I)
+    m = re.match(r"\[account\]\s+(add|remove|restore)\s+@?([A-Za-z0-9._-]{2,30})(?:\s+(tiktok|youtube|instagram))?\s*$",
+                 os.environ.get("TITLE", "").strip(), re.I)
     if not m:
         say("Couldn't read that request. The title should look like: [account] add @handle")
         return
-    action, handle = m.group(1).lower(), "@" + m.group(2)
+    action, handle, platform = m.group(1).lower(), "@" + m.group(2), (m.group(3) or "tiktok").lower()
     niche = ""
     nm = re.search(r"^niche:\s*(.+)$", os.environ.get("BODY") or "", re.M | re.I)
     if nm:
         niche = nm.group(1).strip()[:60]
 
     accounts = json.loads(DATA.read_text(encoding="utf-8"))
-    rec = next((a for a in accounts if a["account"].lower() == handle.lower()), None)
+    rec = next((a for a in accounts if a["account"].lower() == handle.lower() and a.get("platform", "tiktok") == platform), None)
     if rec:
         handle = rec["account"]
     if action == "add" and not rec:
-        accounts.append({"platform": "tiktok", "account": handle, "niche": niche, "tracking": "active",
+        accounts.append({"platform": platform, "account": handle, "niche": niche, "tracking": "active",
                          "last_update_status": "pending", "followers": 0, "following": 0,
                          "profile_likes": 0, "as_of": None, "avatar": ""})
         msg = f"Added {handle}. Stats fill in on the dashboard in about a minute."
