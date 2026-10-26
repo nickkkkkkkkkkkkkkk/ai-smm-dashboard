@@ -264,7 +264,9 @@ const GENRES = ['Revenge', 'Horror', 'Funny', 'Wholesome'];
 const COLORS = ['var(--accent)', 'var(--accent-2)', 'var(--accent-3)', 'var(--accent-4)'];
 const nf = new Intl.NumberFormat('en-US');
 const fmt = (n) => nf.format(n || 0);
-const when = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+// Planned posts have no time until they go live (TikTok Studio doesn't say which video takes which slot).
+const byTime = (a, b) => (a.scheduled_at ? new Date(a.scheduled_at) : Infinity) - (b.scheduled_at ? new Date(b.scheduled_at) : Infinity);
+const when = (iso) => !iso ? 'Not live yet' : new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); if (!isFinite(m)) return 'not updated yet'; if (m < 60) return `updated ${Math.max(1, m)} min ago`; if (m < 2880) return `updated ${Math.round(m / 60)} h ago`; return `updated ${Math.round(m / 1440)} days ago`; };
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
@@ -332,7 +334,13 @@ function drawTiles() {
   const { acct, accts, ps } = scope();
   const live = ps.filter(p => p.status === 'Live');
   const sum = (k) => live.reduce((s, p) => s + (p[k] || 0), 0);
-  const next = ps.filter(p => p.status === 'Scheduled').sort((a, b) => a.scheduled_at < b.scheduled_at ? -1 : 1)[0];
+  // Undated scheduled posts fill the account's posting slots (accounts.json "schedule"), so the next slot is the next post.
+  const waiting = ps.filter(p => p.status === 'Scheduled'), dated = waiting.filter(p => p.scheduled_at).sort(byTime)[0];
+  const taken = new Set(ps.filter(p => p.scheduled_at).map(p => +new Date(p.scheduled_at)));
+  const slot = accts.flatMap(a => a.schedule || []).filter(t => new Date(t) > Date.now() && !taken.has(+new Date(t))).sort((a, b) => new Date(a) - new Date(b))[0];
+  const undated = waiting.filter(p => !p.scheduled_at).length;
+  const next = dated && (!slot || !undated || new Date(dated.scheduled_at) <= new Date(slot)) ? dated
+    : slot && undated ? { slot: true, scheduled_at: slot, title: `One of ${undated} scheduled videos` } : null;
   const set = (id, v) => { document.getElementById(id).textContent = v; };
   set('t-live', live.length); set('t-total', ps.length); set('t-views', fmt(sum('views'))); set('t-likes', fmt(sum('likes')));
   set('t-comments', fmt(sum('comments'))); set('t-followers', fmt(accts.reduce((s, a) => s + (a.followers || 0), 0)));
@@ -340,7 +348,7 @@ function drawTiles() {
   set('t-accounts', acct === ALL ? `${accts.length} account${accts.length === 1 ? '' : 's'}` : `${fmt(accts.reduce((s, a) => s + (a.following || 0), 0))} following`);
   set('t-next', next ? when(next.scheduled_at) : '—'); set('t-next-title', next ? next.title : 'Nothing scheduled');
   const who = acct === ALL ? `Across ${accts.length} account${accts.length === 1 ? '' : 's'}, ` : `On ${acct}, `;
-  set('take', `${who}${live.length} of ${ps.length} posts are live with ${fmt(sum('views'))} views. ` + (next ? `Next up: "${next.title}" on ${when(next.scheduled_at)}.` : 'Nothing else is scheduled. Time for the next batch.'));
+  set('take', `${who}${live.length} of ${ps.length} posts are live with ${fmt(sum('views'))} views. ` + (next ? `Next up: ${next.slot ? 'one of the scheduled videos' : `"${next.title}"`} on ${when(next.scheduled_at)}.` : 'Nothing else is scheduled. Time for the next batch.'));
 }
 
 function drawGoals() {
@@ -380,7 +388,7 @@ function drawCharts() {
     const avg = live.length ? Math.round(live.reduce((s, p) => s + (p.views || 0), 0) / live.length) : null;
     return { label: g, value: avg, color: COLORS[i % COLORS.length], text: avg == null ? `No live posts · ${all.length - live.length} scheduled` : `${fmt(avg)} avg · ${live.length} live` };
   }));
-  hbars(document.getElementById('post-bars'), ps.filter(p => p.status === 'Live').sort((a, b) => a.scheduled_at < b.scheduled_at ? -1 : 1)
+  hbars(document.getElementById('post-bars'), ps.filter(p => p.status === 'Live').sort(byTime)
     .map(p => ({ label: `${acct === ALL && tracked().length > 1 ? p.account + ' ' : ''}#${p.post} ${p.title}`, value: p.views || 0, color: COLORS[0], text: `${fmt(p.views)} views · ${fmt(p.likes)} likes` })));
 }
 
@@ -397,8 +405,8 @@ function hookCheck(h) {
 }
 function drawInsights() {
   const { acct, ps } = scope();
-  const byUrl = Object.fromEntries(stories.map(x => [x.url, x]));
-  const live = ps.filter(p => p.status === 'Live').map(p => ({ ...p, ...(byUrl[p.url] || {}), hours: Math.max(0, (Date.now() - new Date(p.scheduled_at)) / 3600000) }));
+  const story = (p) => stories.find(x => (x.url && x.url === p.url) || (x.account === p.account && x.post === p.post));
+  const live = ps.filter(p => p.status === 'Live').map(p => ({ ...p, ...(story(p) || {}), url: p.url, hours: Math.max(0, (Date.now() - new Date(p.scheduled_at)) / 3600000) }));
   const sum = document.getElementById('ins-sum'), list = document.getElementById('ins-list');
   list.textContent = '';
   if (!live.length) { sum.textContent = 'Nothing is live yet. Insights show up once the first post has been up for a few hours.'; hbars(document.getElementById('style-bars'), []); return; }
@@ -481,11 +489,11 @@ function drawTable() {
   const many = acct === ALL;
   document.querySelectorAll('.acct-col').forEach(e => { e.hidden = !many; });
   const tb = document.getElementById('rows'); tb.textContent = '';
-  ps.slice().sort((a, b) => a.scheduled_at < b.scheduled_at ? -1 : 1).forEach(p => {
+  ps.slice().sort(byTime).forEach(p => {
     const tr = el('tr'); const td = (t, c) => { const d = el('td', c, t); tr.appendChild(d); return d; };
     const ac = td('', 'acct-col'); ac.hidden = !many; const who = el('span', 'who'); who.append(avatar(accounts.find(a => a.account === p.account), 20), el('span', null, p.account)); ac.appendChild(who);
     td(String(p.post));
-    const t = td('', 't'); const a = el('a', null, p.title); a.href = p.url; a.target = '_blank'; a.rel = 'noopener'; t.append(a, el('span', 'q', p.caption_question));
+    const t = td('', 't'); const a = el(p.url ? 'a' : 'span', null, p.title); if (p.url) { a.href = p.url; a.target = '_blank'; a.rel = 'noopener'; } t.append(a, el('span', 'q', p.caption_question));
     if (p.last_error) t.appendChild(el('span', 'q err', "Couldn't read the latest numbers; showing the last ones."));
     td(p.genre, 'opt'); td(when(p.scheduled_at));
     const st = td(''); st.appendChild(el('span', 'pill ' + (p.status === 'Live' ? 'live' : 'sched'), p.status));
@@ -545,6 +553,16 @@ function merge() {
   });
   // Accounts removed through "Remove account" stay hidden until they sign in again.
   (tt.hidden || []).forEach(h => accounts.filter(x => !x.open_id && x.account.toLowerCase() === h).forEach(x => { x.tracking = 'removed'; }));
+  // Until the updater links a planned post to its live video, match the official list by caption.
+  const owner = Object.fromEntries(tt.accounts.filter(t => t.account).map(t => [t.open_id, t.account.toLowerCase()]));
+  const words = (c) => (c || '').replace(/#\S+|\(fictional story\)/gi, ' ').toLowerCase().replace(/[^a-z0-9' ]/g, ' ').split(/\s+/).filter(Boolean).join(' ');
+  const known = new Set(posts.map(p => vidId(p.url)).filter(Boolean));
+  posts.filter(p => !p.url && p.caption_question).forEach(p => {
+    const hit = Object.entries(tt.videos).find(([id, v]) => !known.has(id) && owner[v.open_id] === p.account.toLowerCase() && words(v.title).includes(words(p.caption_question)));
+    if (!hit) return;
+    known.add(hit[0]);
+    Object.assign(p, { url: `https://www.tiktok.com/${p.account}/video/${hit[0]}`, scheduled_at: new Date(hit[1].created * 1000).toISOString(), status: 'Live' });
+  });
   posts.forEach(p => { const v = tt.videos[((p.url || '').match(/video\/(\d+)/) || [])[1]]; if (v) Object.assign(p, { views: v.views, likes: v.likes, comments: v.comments, shares: v.shares, last_error: null }); });
 }
 const flash = () => document.querySelectorAll('.tile .num').forEach(n => { n.classList.remove('flash'); void n.offsetWidth; n.classList.add('flash'); });
