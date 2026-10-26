@@ -65,21 +65,55 @@ def profile(handle):
     }
 
 
-def video(url):
-    """Views, likes and comments for one public video via yt-dlp."""
+def video_json(url):
+    """yt-dlp's details for one public video."""
     out = subprocess.run(
         [sys.executable, "-m", "yt_dlp", "--impersonate", "chrome", "--dump-json", "--skip-download", "--no-warnings", url],
         capture_output=True, text=True, timeout=120)
     if out.returncode != 0:
         raise RuntimeError((out.stderr.strip().splitlines() or ["yt-dlp failed"])[-1][:200])
-    j = json.loads(out.stdout)
+    return json.loads(out.stdout)
+
+
+def video(url):
+    """Views, likes and comments for one public video via yt-dlp."""
+    j = video_json(url)
     stats = {k: int(j.get(src) or 0) for k, src in
              (("views", "view_count"), ("likes", "like_count"), ("comments", "comment_count"))}
     return stats, j.get("thumbnail")
 
 
-def profile_videos(handle):
-    """Every public video on a profile (newest first) with caption, post time and stats, via yt-dlp."""
+def embed_videos(handle, known):
+    """New videos from the creator embed page, for when TikTok's profile shows logged-out visitors 0 videos.
+
+    The embed lists video ids without post times, so each id not already in posts.json is read on its own."""
+    html = requests.get(f"https://www.tiktok.com/embed/@{handle.lstrip('@')}", headers={"User-Agent": UA}, timeout=30).text
+    m = re.search(r'<script[^>]*id="__FRONTITY_CONNECT_STATE__"[^>]*>(.*?)</script>', html, re.S)
+    if not m:
+        raise RuntimeError("embed data not found (blocked or layout changed)")
+    pages = json.loads(m.group(1))["source"]["data"].values()
+    ids = [v["id"] for pg in pages for v in (pg.get("videoList") or []) if not v.get("privateItem")]
+    vids = {}
+    for i in ids:
+        if i in known:
+            continue
+        url = f"https://www.tiktok.com/@{handle.lstrip('@')}/video/{i}"
+        j = video_json(url)
+        vids[i] = {
+            "url": url, "caption": j.get("description") or j.get("title") or "", "timestamp": j.get("timestamp"),
+            "stats": {k: int(j.get(src) or 0) for k, src in
+                      (("views", "view_count"), ("likes", "like_count"), ("comments", "comment_count"))},
+            "thumb": j.get("thumbnail"),
+        }
+    if not ids:
+        raise RuntimeError("no videos in the embed either")
+    return vids
+
+
+def profile_videos(handle, known=()):
+    """Every public video on a profile (newest first) with caption, post time and stats, via yt-dlp.
+
+    Falls back to the embed page (new videos only) when the profile lists none."""
     out = subprocess.run(
         [sys.executable, "-m", "yt_dlp", "--impersonate", "chrome", "--flat-playlist", "--dump-json", "--no-warnings",
          f"https://www.tiktok.com/@{handle.lstrip('@')}"],
@@ -97,7 +131,8 @@ def profile_videos(handle):
             "thumb": thumb,
         }
     if not vids:
-        raise RuntimeError((out.stderr.strip().splitlines() or ["no videos listed"])[-1][:200])
+        print(f"{handle}: profile lists no videos ({(out.stderr.strip().splitlines() or ['empty'])[-1][:120]}); trying the embed")
+        return embed_videos(handle, known)
     return vids
 
 
@@ -284,7 +319,8 @@ def main():
             print(f"{plat} {a['account']}: profile read failed: {e}")
         try:
             if plat == "tiktok":
-                vids = profile_videos(a["account"])
+                known = {m.group(1) for p in posts if (m := re.search(r"/video/(\d+)", p.get("url") or ""))}
+                vids = profile_videos(a["account"], known)
                 link_new_videos(a["account"], vids, posts, stories)
             else:
                 vids = yt_videos(a["account"], a["channel_id"]) if a.get("channel_id") else {}
