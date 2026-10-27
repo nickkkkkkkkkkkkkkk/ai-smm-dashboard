@@ -1,4 +1,4 @@
-// Sign in with TikTok and official stats. Static files are served by Cloudflare before this runs;
+// Sign in with TikTok / Instagram and official stats. Static files are served by Cloudflare before this runs;
 // only /auth/* and /api/* reach it. Tokens stay in KV and never leave the Worker.
 // /api/data also hands the page the stats files from GitHub, so browsers never hit GitHub's
 // 60-requests-an-hour limit for visitors without a login.
@@ -20,8 +20,11 @@ export default {
       if (url.pathname === '/auth/tiktok/start') return start(url, env);
       if (url.pathname === '/auth/tiktok/callback') return await callback(req, url, env);
       if (url.pathname === '/auth/tiktok/disconnect' && req.method === 'POST') return await disconnect(req, url, env);
+      if (url.pathname === '/auth/instagram/setup') return await igSetup(req, url, env);
+      if (url.pathname === '/auth/instagram/start') return await igStart(url, env);
+      if (url.pathname === '/auth/instagram/callback') return await igCallback(req, url, env);
       if (url.pathname === '/api/tiktok') return json(await load(env));
-      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env) });
+      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env) });
     } catch (e) {
       return text(`Something went wrong: ${e.message}`, 502);
     }
@@ -29,6 +32,7 @@ export default {
   },
   async scheduled(_event, env) {
     await sync(env);
+    await igSync(env);
   },
 };
 
@@ -154,6 +158,117 @@ async function call(path, init) {
   return body.data || body;
 }
 
+
+// Sign in with Instagram (Instagram API with Instagram Login, professional accounts only). Same shape
+// as TikTok: the token stays in KV, the cron pulls followers and per-Reel numbers into KV 'instagram'.
+const IG_AUTH = 'https://www.instagram.com/oauth/authorize';
+const IG_GRAPH = 'https://graph.instagram.com/v22.0';
+const IG_SCOPES = 'instagram_business_basic,instagram_business_manage_insights';
+const IG_KEY = 'instagram';
+
+// The Meta app's id and secret are pasted once into /auth/instagram/setup (behind Cloudflare Access)
+// and kept in KV, so the secret never has to pass through chat or the repo. Worker vars win if set.
+async function igApp(env) {
+  if (env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET) return { id: env.INSTAGRAM_APP_ID, secret: env.INSTAGRAM_APP_SECRET };
+  return (await env.HQ.get('igapp', 'json')) || {};
+}
+
+async function igSetup(req, url, env) {
+  if (req.method === 'POST') {
+    if (req.headers.get('Origin') !== url.origin) return text('Forbidden', 403);
+    const f = await req.formData();
+    const id = String(f.get('id') || '').trim(), secret = String(f.get('secret') || '').trim();
+    if (!/^\d{6,20}$/.test(id) || !/^[0-9a-f]{20,64}$/i.test(secret)) return text('That doesn\'t look like an Instagram app ID and app secret. Go back and check both.', 400);
+    await env.HQ.put('igapp', JSON.stringify({ id, secret }));
+    return new Response(null, { status: 302, headers: { Location: '/auth/instagram/start' } });
+  }
+  const has = !!(await igApp(env)).id;
+  return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Instagram setup</title>
+<body style="font:16px system-ui;max-width:32rem;margin:2rem auto;padding:0 16px">
+<h1>Connect Instagram</h1><p>${has ? 'An app is already saved. Saving again replaces it.' : 'Paste the Instagram app ID and app secret from the Meta app.'}</p>
+<p>Redirect URL to put in the app: <code>${url.origin}/auth/instagram/callback</code></p>
+<form method="post"><p><label>Instagram app ID<br><input name="id" required style="width:100%"></label></p>
+<p><label>Instagram app secret<br><input name="secret" type="password" required style="width:100%"></label></p>
+<button>Save and sign in with Instagram</button></form>`, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
+async function igStart(url, env) {
+  const app = await igApp(env);
+  if (!app.id) return new Response(null, { status: 302, headers: { Location: '/auth/instagram/setup' } });
+  const state = crypto.randomUUID();
+  const q = new URLSearchParams({ client_id: app.id, redirect_uri: `${url.origin}/auth/instagram/callback`, response_type: 'code', scope: IG_SCOPES, state });
+  return new Response(null, {
+    status: 302,
+    headers: { Location: `${IG_AUTH}?${q}`, 'Set-Cookie': `ig_state=${state}; Path=/auth/instagram; Max-Age=600; HttpOnly; Secure; SameSite=Lax` },
+  });
+}
+
+async function igCallback(req, url, env) {
+  const state = (req.headers.get('Cookie') || '').match(/(?:^|;\s*)ig_state=([^;]+)/)?.[1];
+  if (!state || state !== url.searchParams.get('state')) return back(url, 'error=state');
+  const code = url.searchParams.get('code');
+  if (!code) return back(url, 'error=' + encodeURIComponent(url.searchParams.get('error_reason') || url.searchParams.get('error') || 'denied'));
+  // A short-lived token from the code, then swapped for a 60-day one.
+  const app = await igApp(env);
+  const short = await igCall('https://api.instagram.com/oauth/access_token', form({
+    client_id: app.id, client_secret: app.secret, grant_type: 'authorization_code',
+    redirect_uri: `${url.origin}/auth/instagram/callback`, code: code.replace(/#_$/, ''),
+  }));
+  const long = await igCall(`https://graph.instagram.com/access_token?${new URLSearchParams({ grant_type: 'ig_exchange_token', client_secret: app.secret, access_token: short.access_token })}`);
+  const id = String(short.user_id);
+  await env.HQ.put(`igtok:${id}`, JSON.stringify({ access_token: long.access_token, expires_at: Date.now() + long.expires_in * 1000 }));
+  const data = await igLoad(env);
+  if (!data.accounts.some(a => a.id === id)) data.accounts.push({ id });
+  const synced = await igSync(env, data);
+  return back(url, 'connected=' + encodeURIComponent(synced.accounts.find(a => a.id === id)?.account || 'Instagram'));
+}
+
+async function igSync(env, data) {
+  data ||= await igLoad(env);
+  for (const a of data.accounts) {
+    try {
+      const tok = await igFresh(env, a.id);
+      const auth = `access_token=${encodeURIComponent(tok.access_token)}`;
+      const u = await igCall(`${IG_GRAPH}/me?fields=user_id,username,profile_picture_url,followers_count,follows_count,media_count&${auth}`);
+      Object.assign(a, { account: '@' + u.username, avatar_url: u.profile_picture_url, followers: u.followers_count, following: u.follows_count,
+        media_count: u.media_count, status: 'ok', error: undefined, as_of: new Date().toISOString() });
+      const media = await igCall(`${IG_GRAPH}/me/media?fields=id,caption,media_product_type,permalink,timestamp,like_count,comments_count&limit=50&${auth}`);
+      for (const m of media.data || []) {
+        // Views are an insight, not a field; a failed insight read keeps the last number.
+        const views = await igCall(`${IG_GRAPH}/${m.id}/insights?metric=views&${auth}`).then(r => r.data?.[0]?.values?.[0]?.value).catch(() => undefined);
+        data.videos[m.id] = { ...(data.videos[m.id] || {}), ig_id: a.id, url: m.permalink, title: m.caption || '', created: Date.parse(m.timestamp) / 1000,
+          likes: m.like_count || 0, comments: m.comments_count || 0, ...(views != null ? { views } : {}) };
+      }
+    } catch (e) {
+      a.status = /token|oauth|session|permission/i.test(e.message) ? 'reconnect' : 'error';
+      a.error = e.message;
+    }
+  }
+  data.updated_at = new Date().toISOString();
+  await env.HQ.put(IG_KEY, JSON.stringify(data));
+  return data;
+}
+
+// Long-lived tokens last 60 days and can be refreshed once they are a day old; refresh weekly.
+async function igFresh(env, id) {
+  const tok = await env.HQ.get(`igtok:${id}`, 'json');
+  if (!tok) throw new Error('No token stored; sign in again');
+  if (tok.expires_at - Date.now() > 53 * 864e5) return tok;
+  const r = await igCall(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(tok.access_token)}`);
+  const next = { access_token: r.access_token, expires_at: Date.now() + r.expires_in * 1000 };
+  await env.HQ.put(`igtok:${id}`, JSON.stringify(next));
+  return next;
+}
+
+async function igCall(url, init) {
+  const res = await fetch(url, init);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.error) throw new Error(body.error?.message || body.error_message || `Instagram returned ${res.status}`);
+  return body;
+}
+
+const igLoad = async (env) => (await env.HQ.get(IG_KEY, 'json')) || { accounts: [], videos: {}, updated_at: null };
+
 // The newest commit on main comes from git's own ref listing, which has no API rate limit. Files are
 // then read from raw.githubusercontent.com by that commit, so they are never a stale cached copy.
 // Kept in memory for 20 seconds so a page polling every 30 seconds costs GitHub almost nothing.
@@ -186,7 +301,7 @@ const form = (o) => ({ method: 'POST', headers: { 'Content-Type': 'application/x
 // TIKTOK_REDIRECT_URI lets TikTok send people back via the public github.io page (tiktok-callback.html),
 // for when TikTok wants the return address on the verified site; that page forwards here.
 const redirectUri = (url, env) => env.TIKTOK_REDIRECT_URI || `${url.origin}/auth/tiktok/callback`;
-const back = (url, q) => new Response(null, { status: 302, headers: { Location: `${url.origin}/?${q}`, 'Set-Cookie': 'tt_state=; Path=/auth/tiktok; Max-Age=0' } });
+const back = (url, q) => new Response(null, { status: 302, headers: { Location: `${url.origin}/?${q}`, 'Set-Cookie': url.pathname.startsWith('/auth/instagram') ? 'ig_state=; Path=/auth/instagram; Max-Age=0' : 'tt_state=; Path=/auth/tiktok; Max-Age=0' } });
 const json = (o) => new Response(JSON.stringify(o), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const text = (t, status) => new Response(t, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 const b64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), c => c.charCodeAt(0));
