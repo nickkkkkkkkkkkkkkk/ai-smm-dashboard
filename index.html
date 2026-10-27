@@ -276,11 +276,11 @@ const PLAT = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' };
 const plat = (r) => (r && r.platform) || 'tiktok';
 const ak = (r) => `${plat(r)}:${r.account}`;
 const label = (r) => `${r.account} · ${PLAT[plat(r)] || plat(r)}`;
-// Instagram has no public stats we can read yet, so its posts carry no numbers.
-const NO_STATS = new Set(['instagram']);
-const hasStats = (r) => !NO_STATS.has(plat(r));
+// Instagram has no public stats; its numbers only come from Sign in with Instagram (src/worker.js).
+const igOn = (r) => !!(ig && ig.accounts.some(a => a.account && a.account.toLowerCase() === r.account.toLowerCase() && a.status !== 'reconnect'));
+const hasStats = (r) => plat(r) !== 'instagram' || igOn(r);
 const profileUrl = (a) => ({ youtube: `https://www.youtube.com/${a.account}`, instagram: `https://www.instagram.com/${a.account.replace('@', '')}/` })[plat(a)] || `https://www.tiktok.com/${a.account}`;
-let base = { accounts: [], posts: [] }, tt = null;
+let base = { accounts: [], posts: [] }, tt = null, ig = null;
 let current = (() => { try { return localStorage.getItem('hq-account') || ALL; } catch { return ALL; } })();
 
 const avatar = (a, size) => {
@@ -317,6 +317,7 @@ function drawPicker() {
     if (managing !== key) return [row];
     const m = el('div', 'acct-manage'); const link = (text, href, cls) => { const a = el('a', cls, text); a.href = href; a.target = '_blank'; a.rel = 'noopener'; m.appendChild(a); };
     if (plat(rec) !== 'tiktok') {
+      if (plat(rec) === 'instagram') { const a = el('a', null, igOn(rec) ? 'Sign in with Instagram again' : 'Sign in with Instagram for stats'); a.href = '/auth/instagram/start'; m.appendChild(a); }
       link(`Open on ${PLAT[plat(rec)]}`, profileUrl(rec));
       link('Remove from dashboard', issueUrl('remove', rec.account, '', plat(rec)), 'danger');
     } else if (rec.open_id) {
@@ -376,7 +377,7 @@ function drawGoals() {
     }[plat(a)] || [];
     const wrap = el('div');
     if (acct === ALL) { const h = el('div', 'goal-acct'); h.append(avatar(a, 24), el('span', null, label(a))); wrap.appendChild(h); }
-    if (!goals.length) wrap.appendChild(el('p', 'note', `${PLAT[plat(a)]} stats aren't connected yet, so there's nothing to measure here.`));
+    if (!goals.length) wrap.appendChild(el('p', 'note', hasStats(a) ? `${fmt(a.followers)} followers. ${PLAT[plat(a)]} has no public bar to start paying.` : `${PLAT[plat(a)]} stats aren't connected yet, so there's nothing to measure here.`));
     const pair = el('div', 'goal-pair');
     goals.forEach(([label, v, goal]) => {
       const g = el('div'); const top = el('div', 'goal-top'); const right = el('span'); const b = el('b', null, fmt(v)); right.append(b, document.createTextNode(` / ${fmt(goal)}`));
@@ -528,7 +529,7 @@ function drawTable() {
 // The updater refreshes every 10 minutes after the last update (see .github/workflows/update.yml).
 function drawRefresh() {
   const pill = document.getElementById('r-pill'), sub = document.getElementById('r-sub');
-  const latest = [meta.updated_at, tt && tt.updated_at].filter(Boolean).sort().pop();
+  const latest = [meta.updated_at, tt && tt.updated_at, ig && ig.updated_at].filter(Boolean).sort().pop();
   const last = latest ? new Date(latest) : null;
   const mins = last ? Math.ceil((last.getTime() + 10 * 60000 - Date.now()) / 60000) : 0;
   const late = mins < -5;
@@ -560,12 +561,13 @@ document.getElementById('acct-list').addEventListener('click', (e) => {
 // official TikTok numbers; the bundled copy is only a last resort.
 const ON_PAGES = location.hostname.endsWith('github.io');
 const local = (f) => fetch(`data/${f}?t=${Date.now()}`, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(f); return r.json(); });
-const localAll = async () => { const [accounts, posts, meta, stories] = await Promise.all(['accounts', 'posts', 'meta', 'stories'].map(f => local(f + '.json').catch(() => null))); return { files: { accounts, posts, meta, stories }, tiktok: null }; };
+const localAll = async () => { const [accounts, posts, meta, stories] = await Promise.all(['accounts', 'posts', 'meta', 'stories'].map(f => local(f + '.json').catch(() => null))); return { files: { accounts, posts, meta, stories }, tiktok: null, instagram: null }; };
 const getAll = () => ON_PAGES ? localAll() : fetch('/api/data', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('data'); return r.json(); }).catch(localAll);
 const asset = (path) => ON_PAGES ? path : `https://raw.githubusercontent.com/${REPO}/main/${path}`;
 // Accounts signed in with TikTok get official numbers from the Worker, laid over the public-page ones.
 function merge() {
   accounts = base.accounts.map(a => ({ ...a })); posts = base.posts.map(p => ({ ...p }));
+  mergeIg();
   if (!tt) return;
   tt.accounts.filter(t => t.account).forEach(t => {
     let a = accounts.find(x => plat(x) === 'tiktok' && x.account.toLowerCase() === t.account.toLowerCase());
@@ -588,13 +590,32 @@ function merge() {
   });
   posts.filter(p => plat(p) === 'tiktok').forEach(p => { const v = tt.videos[((p.url || '').match(/video\/(\d+)/) || [])[1]]; if (v) Object.assign(p, { views: v.views, likes: v.likes, comments: v.comments, shares: v.shares, last_error: null }); });
 }
+// Accounts signed in with Instagram: followers, plus each Reel matched to its planned post by caption.
+function mergeIg() {
+  if (!ig) return;
+  const words = (c) => (c || '').replace(/#\S+|\(fictional story\)/gi, ' ').toLowerCase().replace(/[^a-z0-9' ]/g, ' ').split(/\s+/).filter(Boolean).join(' ');
+  ig.accounts.filter(i => i.account).forEach(i => {
+    const a = accounts.find(x => plat(x) === 'instagram' && x.account.toLowerCase() === i.account.toLowerCase());
+    if (!a) return;
+    Object.assign(a, { avatar_url: i.avatar_url, connected: i.status });
+    if (i.status === 'ok') Object.assign(a, { followers: i.followers, following: i.following, as_of: i.as_of, last_update_status: 'ok' });
+    const used = new Set();
+    posts.filter(p => ak(p) === ak(a) && p.caption_question).forEach(p => {
+      const hit = Object.entries(ig.videos).find(([id, v]) => !used.has(id) && v.ig_id === i.id && words(v.title).includes(words(p.caption_question)));
+      if (!hit) return;
+      used.add(hit[0]);
+      const v = hit[1];
+      Object.assign(p, { url: v.url, scheduled_at: new Date(v.created * 1000).toISOString(), status: 'Live', views: v.views || 0, likes: v.likes, comments: v.comments, last_error: null });
+    });
+  });
+}
 const flash = () => document.querySelectorAll('.tile .num').forEach(n => { n.classList.remove('flash'); void n.offsetWidth; n.classList.add('flash'); });
 async function load() {
   try {
     const first = !meta.updated_at;
-    const { files: f, tiktok: t } = await getAll();
+    const { files: f, tiktok: t, instagram: g } = await getAll();
     if (!f.accounts || !f.posts || !f.meta) throw new Error('missing data');
-    base = { accounts: f.accounts, posts: f.posts }; meta = f.meta; stories = f.stories || stories; if (t) tt = t; merge(); draw();
+    base = { accounts: f.accounts, posts: f.posts }; meta = f.meta; stories = f.stories || stories; if (t) tt = t; if (g) ig = g; merge(); draw();
     if (!first) flash();
   } catch (e) { if (!meta.updated_at) document.getElementById('take').textContent = "Couldn't load the stats files. Try refreshing the page."; }
 }
@@ -602,18 +623,18 @@ async function load() {
 async function check() {
   if (document.hidden) return;
   try {
-    const { files: f, tiktok: t } = await getAll();
+    const { files: f, tiktok: t, instagram: g } = await getAll();
     if (!f.meta || !f.accounts || !f.posts) return;
-    const fresh = f.meta.updated_at !== meta.updated_at, ttFresh = t && t.updated_at !== (tt && tt.updated_at);
-    if (!fresh && !ttFresh) return;
-    base = { accounts: f.accounts, posts: f.posts }; meta = f.meta; stories = f.stories || stories; if (t) tt = t;
+    const fresh = f.meta.updated_at !== meta.updated_at, ttFresh = t && t.updated_at !== (tt && tt.updated_at), igFresh = g && g.updated_at !== (ig && ig.updated_at);
+    if (!fresh && !ttFresh && !igFresh) return;
+    base = { accounts: f.accounts, posts: f.posts }; meta = f.meta; stories = f.stories || stories; if (t) tt = t; if (g) ig = g;
     merge(); draw(); flash();
   } catch {}
 }
 // Result of a TikTok sign-in round trip (see src/worker.js), shown once.
 (() => {
   const q = new URLSearchParams(location.search), box = document.getElementById('tt-msg');
-  const msg = q.has('connected') ? `Signed in as ${q.get('connected') || 'your TikTok'}. Official stats now refresh every 10 minutes.`
+  const msg = q.has('connected') ? `Signed in as ${q.get('connected') || 'your account'}. Official stats now refresh every 10 minutes.`
     : q.has('removed') ? `Removed ${q.get('removed') || 'the account'} from the dashboard. Sign in with TikTok to bring it back.`
     : q.get('error') === 'state' ? 'That TikTok sign-in expired. Try again.'
     : q.has('error') ? `TikTok sign-in didn't finish (${q.get('error')}).` : '';
