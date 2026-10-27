@@ -7,6 +7,7 @@
   "assets": { "directory": "." },
   "kv_namespaces": [{ "binding": "HQ" }],
   "triggers": { "crons": ["*/10 * * * *"] },
+  // AUTH_ORIGIN: the address registered as the TikTok/Instagram callback; sign-ins started elsewhere move there.
   // The TikTok client key is public (it appears in the login link); the client secret is a Worker secret.
-  "vars": { "ACCESS_TEAM": "snowy-forest-7c54.cloudflareaccess.com", "TIKTOK_CLIENT_KEY": "sbawo3ktwxiv6bgd85" }
+  "vars": { "ACCESS_TEAM": "snowy-forest-7c54.cloudflareaccess.com", "TIKTOK_CLIENT_KEY": "sbawo3ktwxiv6bgd85", "AUTH_ORIGIN": "https://ai-smm-dashboard.steep-shape-ea79.workers.dev" }
 }
