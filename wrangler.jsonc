@@ -6,8 +6,11 @@
   "compatibility_date": "2025-09-01",
   "assets": { "directory": "." },
   "kv_namespaces": [{ "binding": "HQ" }],
+  // dash.dying.fr is the main address; workers.dev stays on because it is the registered sign-in callback.
+  "routes": [{ "pattern": "dash.dying.fr", "custom_domain": true }],
+  "workers_dev": true,
   "triggers": { "crons": ["*/10 * * * *"] },
-  // AUTH_ORIGIN: the address registered as the TikTok/Instagram callback; sign-ins started elsewhere move there.
+  // HOME_ORIGIN: where sign-ins return to. AUTH_ORIGIN: the address registered as the TikTok/Instagram callback; sign-ins started elsewhere move there.
   // The TikTok client key is public (it appears in the login link); the client secret is a Worker secret.
-  "vars": { "ACCESS_TEAM": "snowy-forest-7c54.cloudflareaccess.com", "TIKTOK_CLIENT_KEY": "sbawo3ktwxiv6bgd85", "AUTH_ORIGIN": "https://ai-smm-dashboard.steep-shape-ea79.workers.dev" }
+  "vars": { "ACCESS_TEAM": "snowy-forest-7c54.cloudflareaccess.com", "TIKTOK_CLIENT_KEY": "sbawo3ktwxiv6bgd85", "AUTH_ORIGIN": "https://ai-smm-dashboard.steep-shape-ea79.workers.dev", "HOME_ORIGIN": "https://dash.dying.fr" }
 }
