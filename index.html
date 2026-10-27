@@ -474,20 +474,22 @@ function drawInsights() {
 const vidId = (url) => ((url || '').match(/(?:video|shorts)\/([\w-]+)/) || [])[1];
 function drawContent() {
   const { acct, ps } = scope();
-  const live = ps.filter(p => p.status === 'Live' && p.url).sort((a, b) => a.scheduled_at < b.scheduled_at ? 1 : -1);
-  const views = live.reduce((s, p) => s + (p.views || 0), 0);
-  document.getElementById('c-take').textContent = live.length ? `${live.length} live video${live.length === 1 ? '' : 's'} with ${fmt(views)} views, newest first. Tap one to open it.` : 'No videos are live yet.';
+  // Platforms without stats (Instagram) have no video links, so their posts open the profile instead.
+  const live = ps.filter(p => p.status === 'Live' && (p.url || !hasStats(p))).sort((a, b) => a.scheduled_at < b.scheduled_at ? 1 : -1);
+  const views = live.reduce((s, p) => s + (p.views || 0), 0), counted = live.some(hasStats);
+  document.getElementById('c-take').textContent = !live.length ? 'No videos are live yet.'
+    : `${live.length} video${live.length === 1 ? '' : 's'} past ${live.length === 1 ? 'its' : 'their'} posting time${counted ? ` with ${fmt(views)} views` : ''}, newest first. Tap one to open it.` + (live.every(hasStats) ? '' : ` Instagram stats aren't connected yet, so its posts are shown by schedule and open the profile.`);
   const grid = document.getElementById('c-grid');
   grid.replaceChildren(...live.map(p => {
-    const a = el('a', 'vid'); a.href = p.url; a.target = '_blank'; a.rel = 'noopener';
+    const a = el('a', 'vid'); a.href = p.url || profileUrl(p); a.target = '_blank'; a.rel = 'noopener';
     const th = el('div', 'th'); const id = vidId(p.url);
     if (id) { const img = new Image(); img.onload = () => { th.style.backgroundImage = `url("${img.src}")`; th.firstChild && th.firstChild.nodeType === 3 && th.firstChild.remove(); }; img.src = asset(`data/thumbs/${id}.jpg`); }
     th.append(document.createTextNode('No cover yet'));
     if (p.genre) th.appendChild(el('span', 'gen', p.genre));
-    th.appendChild(el('span', 'views', `▶ ${fmt(p.views)}`));
+    if (hasStats(p)) th.appendChild(el('span', 'views', `▶ ${fmt(p.views)}`));
     const b = el('div', 'body');
     b.append(el('div', 'tt', `${acct === ALL && tracked().length > 1 ? PLAT[plat(p)] + ' · ' : ''}#${p.post} ${p.title}`),
-      el('div', 'meta', `${fmt(p.likes)} likes · ${fmt(p.comments)} comments${p.views ? ` · ${((p.likes || 0) / p.views * 100).toFixed(1)}% liked` : ''}`),
+      el('div', 'meta', hasStats(p) ? `${fmt(p.likes)} likes · ${fmt(p.comments)} comments${p.views ? ` · ${((p.likes || 0) / p.views * 100).toFixed(1)}% liked` : ''}` : `Scheduled on ${PLAT[plat(p)]} · stats not connected`),
       el('div', 'meta', `Posted ${when(p.scheduled_at)}${p.game ? ' · ' + p.game : ''}`));
     a.append(th, b); return a;
   }));
