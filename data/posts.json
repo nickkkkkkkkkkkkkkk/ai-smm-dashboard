@@ -13,7 +13,7 @@
     "comments": 11,
     "url": "https://www.tiktok.com/@nickblox40/video/7700498619937328398",
     "genre": "Revenge",
-    "as_of": "2026-10-27T15:56:30Z"
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "tiktok",
@@ -29,7 +29,7 @@
     "comments": 0,
     "url": "https://www.tiktok.com/@nickblox40/video/7700499496899251470",
     "genre": "Horror",
-    "as_of": "2026-10-27T15:56:30Z"
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "tiktok",
@@ -45,7 +45,7 @@
     "comments": 0,
     "url": "https://www.tiktok.com/@nickblox40/video/7700499919643086093",
     "genre": "Funny",
-    "as_of": "2026-10-27T15:56:30Z"
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "tiktok",
@@ -62,7 +62,7 @@
     "comments": 0,
     "url": "https://www.tiktok.com/@nickblox40/video/7700834038470167822",
     "genre": "Revenge",
-    "as_of": "2026-10-27T15:56:30Z"
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "tiktok",
@@ -73,12 +73,13 @@
     "game_tag": "#growagarden",
     "caption_question": "Was this too far?",
     "scheduled_at": "2026-10-27T12:00:00-04:00",
-    "status": "Scheduled",
-    "views": 0,
+    "status": "Live",
+    "views": 2,
     "likes": 0,
     "comments": 0,
-    "url": null,
-    "genre": "Revenge"
+    "url": "https://www.tiktok.com/@nickblox40/video/7700837674210348302",
+    "genre": "Revenge",
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "tiktok",
@@ -175,7 +176,7 @@
     "comments": 0,
     "url": "https://www.tiktok.com/@nickblox40/video/7700836910293404942",
     "genre": "Horror",
-    "as_of": "2026-10-27T15:56:30Z"
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "tiktok",
@@ -304,7 +305,7 @@
     "comments": 0,
     "url": "https://www.tiktok.com/@nickblox40/video/7700836127237852429",
     "genre": "Horror",
-    "as_of": "2026-10-27T15:56:30Z"
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "tiktok",
@@ -481,7 +482,7 @@
     "comments": 0,
     "url": "https://www.youtube.com/shorts/pgvz1jnNIZ8",
     "genre": "Revenge",
-    "as_of": "2026-10-27T15:56:30Z"
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "youtube",
@@ -498,7 +499,7 @@
     "comments": 0,
     "url": "https://www.youtube.com/shorts/yuP9bqN3Tu8",
     "genre": "Horror",
-    "as_of": "2026-10-27T15:56:30Z"
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "youtube",
@@ -510,12 +511,12 @@
     "caption_question": "Part 2 tomorrow. Who is it?",
     "scheduled_at": "2026-10-26T19:00:00-04:00",
     "status": "Live",
-    "views": 998,
+    "views": 993,
     "likes": 13,
     "comments": 0,
     "url": "https://www.youtube.com/shorts/Lj3GprCnqpA",
     "genre": "Horror",
-    "as_of": "2026-10-27T15:56:30Z"
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "youtube",
@@ -526,12 +527,13 @@
     "game_tag": "#growagarden",
     "caption_question": "Was this too far?",
     "scheduled_at": "2026-10-27T12:00:00-04:00",
-    "status": "Scheduled",
+    "status": "Live",
     "views": 0,
     "likes": 0,
     "comments": 0,
-    "url": null,
-    "genre": "Revenge"
+    "url": "https://www.youtube.com/shorts/aSVJHxKYxVU",
+    "genre": "Revenge",
+    "as_of": "2026-10-27T16:06:35Z"
   },
   {
     "platform": "youtube",
@@ -942,7 +944,7 @@
     "game_tag": "#growagarden",
     "caption_question": "Was this too far?",
     "scheduled_at": "2026-10-27T12:00:00-04:00",
-    "status": "Scheduled",
+    "status": "Live",
     "views": 0,
     "likes": 0,
     "comments": 0,
