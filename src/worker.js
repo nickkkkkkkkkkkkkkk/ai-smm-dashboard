@@ -12,10 +12,16 @@ const DATA_KEY = 'tiktok';
 const REPO = 'nickkkkkkkkkkkkkkk/ai-smm-dashboard';
 const FILES = ['accounts', 'posts', 'meta', 'stories'];
 
+let HOME = null;
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    HOME = env.HOME_ORIGIN || null;
     if (!(await fromAccess(req, env))) return text('Sign in to the dashboard first.', 403);
+    // TikTok and Instagram only accept the callback address registered with them, so sign-ins always
+    // run on AUTH_ORIGIN (the workers.dev address) and then send the person back to HOME_ORIGIN.
+    if (env.AUTH_ORIGIN && url.origin !== env.AUTH_ORIGIN && /^\/auth\/(tiktok|instagram)\/(start|setup)$/.test(url.pathname))
+      return new Response(null, { status: 302, headers: { Location: env.AUTH_ORIGIN + url.pathname } });
     try {
       if (url.pathname === '/auth/tiktok/start') return start(url, env);
       if (url.pathname === '/auth/tiktok/callback') return await callback(req, url, env);
@@ -301,7 +307,7 @@ const form = (o) => ({ method: 'POST', headers: { 'Content-Type': 'application/x
 // TIKTOK_REDIRECT_URI lets TikTok send people back via the public github.io page (tiktok-callback.html),
 // for when TikTok wants the return address on the verified site; that page forwards here.
 const redirectUri = (url, env) => env.TIKTOK_REDIRECT_URI || `${url.origin}/auth/tiktok/callback`;
-const back = (url, q) => new Response(null, { status: 302, headers: { Location: `${url.origin}/?${q}`, 'Set-Cookie': url.pathname.startsWith('/auth/instagram') ? 'ig_state=; Path=/auth/instagram; Max-Age=0' : 'tt_state=; Path=/auth/tiktok; Max-Age=0' } });
+const back = (url, q) => new Response(null, { status: 302, headers: { Location: `${HOME || url.origin}/?${q}`, 'Set-Cookie': url.pathname.startsWith('/auth/instagram') ? 'ig_state=; Path=/auth/instagram; Max-Age=0' : 'tt_state=; Path=/auth/tiktok; Max-Age=0' } });
 const json = (o) => new Response(JSON.stringify(o), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const text = (t, status) => new Response(t, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 const b64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), c => c.charCodeAt(0));
