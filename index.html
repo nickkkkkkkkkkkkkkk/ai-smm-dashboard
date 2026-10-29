@@ -136,7 +136,6 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .acct-manage a.danger { color: #f87171; }
 .acct-removed-h { font-size: .75rem; color: var(--muted); margin: 6px 10px 2px; }
 .acct-restore { color: var(--muted); }
-.acct-how { margin: 6px 4px 2px !important; }
 .pending { font-size: .8rem; color: var(--warn); padding: 6px 10px; }
 .acct-tt { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: .9rem; color: #000; background: #fff; text-decoration: none; border-radius: 10px; padding: 9px 12px; margin: 2px 4px 8px; }
 .acct-tt:hover { background: #e4e4e7; }
@@ -179,6 +178,19 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 @media (max-width: 40rem) { .refresh { align-items: flex-start; } }
 @media (max-width: 40rem) { .tiles { grid-template-columns: 1fr 1fr; gap: 10px; } .tiles .tile:last-child { grid-column: 1 / -1; } .ico { display: none; } .card, .tile { padding: 18px; border-radius: 18px; } .card > .note { margin-inline: -18px; padding-inline: 18px; } }
 body.all-accounts #t-next-tile, body.all-accounts section.card { display: none; }
+body.all-accounts section.card#earnings { display: block; } #earnings[hidden] { display: none !important; }
+.earn-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+@media (max-width: 40rem) { .earn-tiles > div { padding: 10px; } .earn-tiles .num { font-size: 1.05rem !important; } }
+.earn-tiles > div { background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.earn-tiles .lbl { color: var(--muted); font-size: .78rem; } .earn-tiles .num { font-size: 1.4rem; font-weight: 600; margin-top: 2px; } .earn-tiles .sub { color: var(--muted); font-size: .75rem; }
+.earn-h { font-size: .85rem; font-weight: 600; margin: 18px 0 8px; }
+.earn-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: .85rem; }
+.earn-row .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .earn-row .t a { color: inherit; } .earn-row .m { color: var(--muted); font-size: .75rem; }
+.earn-row .v { flex: none; text-align: right; } .earn-row button { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; padding: 0 0 0 8px; }
+.earn-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.earn-form input { background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); border-radius: 10px; padding: 8px 10px; font: inherit; font-size: .85rem; min-width: 0; }
+.earn-form input[name=amount] { width: 7rem; } .earn-form input[name=note] { flex: 1 1 10rem; }
+.earn-form button { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 8px 14px; font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -193,7 +205,6 @@ body.all-accounts #t-next-tile, body.all-accounts section.card { display: none; 
       <div class="acct-foot">
         <a class="acct-tt" href="/auth/tiktok/start">Sign in with TikTok</a>
         <div id="acct-removed"></div>
-        <p class="acct-how"><b>Sign in with TikTok</b> to add an account. TikTok handles the password; this page never sees it.</p>
       </div>
     </div>
   </div>
@@ -216,6 +227,21 @@ body.all-accounts #t-next-tile, body.all-accounts section.card { display: none; 
     <div class="tile"><div class="lbl">Total likes</div><div class="num" id="t-likes">—</div><div class="sub"><span id="t-comments">—</span> comments</div></div>
     <div class="tile"><div class="lbl">Followers</div><div class="num" id="t-followers">—</div><div class="sub"><span id="t-accounts">—</span></div></div>
     <div class="tile" id="t-next-tile"><div class="lbl">Next post</div><div class="num" id="t-next" style="font-size:1.35rem">—</div><div class="sub" id="t-next-title">—</div></div>
+  </section>
+
+  <section class="card" id="earnings" hidden>
+    <h2>Clipping earnings</h2>
+    <p class="note" id="earn-note">Whop Content Rewards.</p>
+    <div class="earn-tiles" id="earn-tiles"></div>
+    <div id="earn-clips"></div>
+    <div class="earn-h">Payouts from Whop</div>
+    <div id="earn-paid"></div>
+    <form class="earn-form" id="earn-form">
+      <input name="amount" type="number" step="0.01" min="0.01" placeholder="$ amount" required aria-label="Amount in dollars">
+      <input name="date" type="date" required aria-label="Date paid">
+      <input name="note" type="text" maxlength="80" placeholder="Note (optional)" aria-label="Note">
+      <button type="submit">Log payout</button>
+    </form>
   </section>
 
   <section class="card" id="rewards">
@@ -337,7 +363,7 @@ function drawPicker() {
   const pend = loadPending().filter(p => !accounts.some(a => a.account.toLowerCase() === p.handle.toLowerCase() && (a.tracking === 'removed') === (p.action === 'remove')) && Date.now() - p.at < 15 * 60000);
   savePending(pend);
   list.replaceChildren(...item(ALL, null, 'All accounts', `${tracked().length} tracked`, '', false),
-    ...tracked().flatMap(a => { const bad = a.connected === 'reconnect' || (a.last_update_status && !['ok', 'pending'].includes(a.last_update_status)); return item(ak(a), a, a.account, [PLAT[plat(a)] + (a.open_id ? ' · signed in' : ''), a.niche].filter(Boolean).join(' · '), !hasStats(a) ? 'schedule only' : a.connected === 'reconnect' ? 'sign in again' : bad ? "couldn't read" : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
+    ...tracked().flatMap(a => { const bad = a.connected === 'reconnect' || (a.last_update_status && !['ok', 'pending'].includes(a.last_update_status)); return item(ak(a), a, a.account, PLAT[plat(a)] + (a.open_id ? ' · signed in' : ''), !hasStats(a) ? 'schedule only' : a.connected === 'reconnect' ? 'sign in again' : bad ? "couldn't read" : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
     ...pend.map(p => el('div', 'pending', `${p.action === 'add' ? 'Adding' : p.action === 'remove' ? 'Removing' : 'Restoring'} ${p.handle}… shows here about a minute after you submit on GitHub`)));
   const removed = accounts.filter(a => a.tracking === 'removed'), rbox = document.getElementById('acct-removed');
   rbox.replaceChildren(...(removed.length ? [el('div', 'acct-removed-h', 'Removed accounts')] : []), ...removed.map(a => { const tt = plat(a) === 'tiktok'; const r = el('a', 'acct-restore', tt ? `Restore ${a.account} (sign in with TikTok)` : `Restore ${label(a)}`); r.href = tt ? '/auth/tiktok/start' : issueUrl('restore', a.account, '', plat(a)); if (!tt) { r.target = '_blank'; r.rel = 'noopener'; } return r; }));
@@ -526,6 +552,55 @@ function drawTable() {
   });
 }
 
+// Clip accounts carry their Whop campaign (accounts.json "campaign"). A clip pays rate_per_1k once it
+// passes min_views, capped at max_per_clip; that is an estimate until Whop approves it. Payouts are
+// logged by hand and kept by the Worker (/api/whop), since Whop has no public earnings feed.
+const usd = (n) => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+let whop = { payouts: [] };
+function drawEarnings() {
+  const { accts, ps } = scope(), card = document.getElementById('earnings');
+  const camp = Object.fromEntries(accts.filter(a => a.campaign).map(a => [ak(a), a.campaign]));
+  card.hidden = !Object.keys(camp).length;
+  if (card.hidden) return;
+  const clips = ps.filter(p => camp[ak(p)] && p.status === 'Live').map(p => {
+    const c = camp[ak(p)], views = hasStats(p) ? p.views || 0 : 0;
+    return { p, c, views, est: views >= c.min_views ? Math.min(c.max_per_clip || Infinity, views / 1000 * c.rate_per_1k) : 0 };
+  }).sort((a, b) => b.est - a.est || b.views - a.views);
+  const est = clips.reduce((s, c) => s + c.est, 0), paid = whop.payouts.reduce((s, x) => s + x.amount, 0);
+  const month = new Date().toISOString().slice(0, 7), paidMonth = whop.payouts.filter(x => x.date.startsWith(month)).reduce((s, x) => s + x.amount, 0);
+  const tile = (l, v, sub) => { const d = el('div'); d.append(el('div', 'lbl', l), el('div', 'num', v), el('div', 'sub', sub)); return d; };
+  document.getElementById('earn-tiles').replaceChildren(
+    tile('Estimated earned', usd(est), `${clips.filter(c => c.est).length} of ${clips.length} clips past the minimum`),
+    tile('Paid this month', usd(paidMonth), `${Math.min(100, paidMonth).toFixed(0)}% of the $100 goal`),
+    tile('Paid all time', usd(paid), `${whop.payouts.length} payout${whop.payouts.length === 1 ? '' : 's'}`));
+  const names = [...new Set(Object.values(camp).map(c => `${c.name}: ${usd(c.rate_per_1k)} per 1,000 views from ${fmt(c.min_views)} views`))];
+  document.getElementById('earn-note').textContent = `${names.join('. ')}. Estimates are before Whop approves the views and takes its fee.`;
+  const row = (t, m, v, extra) => { const r = el('div', 'earn-row'); const l = el('div', 't'); l.append(t, el('div', 'm', m)); const right = el('div', 'v', v); if (extra) right.appendChild(extra); r.append(l, right); return r; };
+  const link = (p) => { if (!p.url) return document.createTextNode(p.title); const a = el('a', null, p.title); a.href = p.url; a.target = '_blank'; a.rel = 'noopener'; return a; };
+  document.getElementById('earn-clips').replaceChildren(...(clips.length ? clips.map(c => row(link(c.p), `${PLAT[plat(c.p)]} · ${fmt(c.views)} views${c.est ? '' : ` · ${fmt(c.c.min_views - c.views)} to go`}`, usd(c.est)))
+    : [el('p', 'note', 'No clips are live yet. They show here once they post.')]));
+  document.getElementById('earn-paid').replaceChildren(...(whop.payouts.length ? [...whop.payouts].sort((a, b) => b.date.localeCompare(a.date)).map(x => {
+    const del = el('button', null, '✕'); del.type = 'button'; del.setAttribute('aria-label', 'Delete payout');
+    del.addEventListener('click', () => { if (confirm(`Delete the ${usd(x.amount)} payout from ${x.date}?`)) saveWhop({ action: 'remove', id: x.id }); });
+    return row(document.createTextNode(x.note || 'Whop payout'), x.date, usd(x.amount), del);
+  }) : [el('p', 'note', 'Nothing logged yet. Add each payout from Whop below.')]));
+}
+async function saveWhop(body) {
+  try {
+    const r = await fetch('/api/whop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(await r.text());
+    whop = await r.json(); drawEarnings(); return true;
+  } catch (e) { alert(`Couldn't save that: ${e.message}`); return false; }
+}
+(() => {
+  const f = document.getElementById('earn-form');
+  f.date.value = new Date().toLocaleDateString('en-CA');
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (await saveWhop({ action: 'add', amount: +f.amount.value, date: f.date.value, note: f.note.value.trim() })) { f.amount.value = ''; f.note.value = ''; }
+  });
+})();
+
 // The updater refreshes every 10 minutes after the last update (see .github/workflows/update.yml).
 function drawRefresh() {
   const pill = document.getElementById('r-pill'), sub = document.getElementById('r-sub');
@@ -539,7 +614,7 @@ function drawRefresh() {
 }
 
 // All accounts is a summary: just the four totals. Per-account detail shows once one account is picked.
-const draw = () => { document.body.classList.toggle('all-accounts', pick() === ALL); drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawInsights(); drawTable(); drawContent(); };
+const draw = () => { document.body.classList.toggle('all-accounts', pick() === ALL); drawRefresh(); drawPicker(); drawTiles(); drawGoals(); drawCharts(); drawInsights(); drawTable(); drawContent(); drawEarnings(); };
 
 const btn = document.getElementById('acct-btn'), panel = document.getElementById('acct-panel');
 const open = (o) => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); };
@@ -561,7 +636,7 @@ document.getElementById('acct-list').addEventListener('click', (e) => {
 // official TikTok numbers; the bundled copy is only a last resort.
 const ON_PAGES = location.hostname.endsWith('github.io');
 const local = (f) => fetch(`data/${f}?t=${Date.now()}`, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(f); return r.json(); });
-const localAll = async () => { const [accounts, posts, meta, stories] = await Promise.all(['accounts', 'posts', 'meta', 'stories'].map(f => local(f + '.json').catch(() => null))); return { files: { accounts, posts, meta, stories }, tiktok: null, instagram: null }; };
+const localAll = async () => { const [accounts, posts, meta, stories] = await Promise.all(['accounts', 'posts', 'meta', 'stories'].map(f => local(f + '.json').catch(() => null))); return { files: { accounts, posts, meta, stories }, tiktok: null, instagram: null, whop: null }; };
 const getAll = () => ON_PAGES ? localAll() : fetch('/api/data', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('data'); return r.json(); }).catch(localAll);
 const asset = (path) => ON_PAGES ? path : `https://raw.githubusercontent.com/${REPO}/main/${path}`;
 // Accounts signed in with TikTok get official numbers from the Worker, laid over the public-page ones.
@@ -599,6 +674,7 @@ function mergeIg() {
     if (!a) return;
     Object.assign(a, { avatar_url: i.avatar_url, connected: i.status });
     if (i.status === 'ok') Object.assign(a, { followers: i.followers, following: i.following, as_of: i.as_of, last_update_status: 'ok' });
+    else if (i.status === 'error') Object.assign(a, { last_update_status: 'blocked', last_error: i.error });
     const used = new Set();
     posts.filter(p => ak(p) === ak(a) && p.caption_question).forEach(p => {
       const hit = Object.entries(ig.videos).find(([id, v]) => !used.has(id) && v.ig_id === i.id && words(v.title).includes(words(p.caption_question)));
@@ -613,9 +689,9 @@ const flash = () => document.querySelectorAll('.tile .num').forEach(n => { n.cla
 async function load() {
   try {
     const first = !meta.updated_at;
-    const { files: f, tiktok: t, instagram: g } = await getAll();
+    const { files: f, tiktok: t, instagram: g, whop: w } = await getAll();
     if (!f.accounts || !f.posts || !f.meta) throw new Error('missing data');
-    base = { accounts: f.accounts, posts: f.posts }; meta = f.meta; stories = f.stories || stories; if (t) tt = t; if (g) ig = g; merge(); draw();
+    base = { accounts: f.accounts, posts: f.posts }; meta = f.meta; stories = f.stories || stories; if (t) tt = t; if (g) ig = g; if (w) whop = w; merge(); draw();
     if (!first) flash();
   } catch (e) { if (!meta.updated_at) document.getElementById('take').textContent = "Couldn't load the stats files. Try refreshing the page."; }
 }
@@ -623,8 +699,9 @@ async function load() {
 async function check() {
   if (document.hidden) return;
   try {
-    const { files: f, tiktok: t, instagram: g } = await getAll();
+    const { files: f, tiktok: t, instagram: g, whop: w } = await getAll();
     if (!f.meta || !f.accounts || !f.posts) return;
+    if (w && JSON.stringify(w) !== JSON.stringify(whop)) { whop = w; drawEarnings(); }
     const fresh = f.meta.updated_at !== meta.updated_at, ttFresh = t && t.updated_at !== (tt && tt.updated_at), igFresh = g && g.updated_at !== (ig && ig.updated_at);
     if (!fresh && !ttFresh && !igFresh) return;
     base = { accounts: f.accounts, posts: f.posts }; meta = f.meta; stories = f.stories || stories; if (t) tt = t; if (g) ig = g;

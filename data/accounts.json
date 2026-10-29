@@ -185,5 +185,43 @@
       "2026-11-10T16:00:00-05:00",
       "2026-11-10T19:00:00-05:00"
     ]
+  },
+  {
+    "platform": "youtube",
+    "account": "@nickclippedx",
+    "niche": "Clipping",
+    "tracking": "active",
+    "last_update_status": "pending",
+    "followers": 0,
+    "following": 0,
+    "profile_likes": 0,
+    "as_of": null,
+    "avatar": "",
+    "campaign": {
+      "name": "DiegoLoveless (Marvel Rivals)",
+      "via": "Whop",
+      "rate_per_1k": 1.5,
+      "min_views": 1000,
+      "max_per_clip": 500
+    }
+  },
+  {
+    "platform": "instagram",
+    "account": "@nickclippedx",
+    "niche": "Clipping",
+    "tracking": "active",
+    "last_update_status": "pending",
+    "followers": 0,
+    "following": 0,
+    "profile_likes": 0,
+    "as_of": null,
+    "avatar": "",
+    "campaign": {
+      "name": "DiegoLoveless (Marvel Rivals)",
+      "via": "Whop",
+      "rate_per_1k": 1.5,
+      "min_views": 1000,
+      "max_per_clip": 500
+    }
   }
 ]
