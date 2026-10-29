@@ -30,7 +30,8 @@ export default {
       if (url.pathname === '/auth/instagram/start') return await igStart(url, env);
       if (url.pathname === '/auth/instagram/callback') return await igCallback(req, url, env);
       if (url.pathname === '/api/tiktok') return json(await load(env));
-      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env) });
+      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env), whop: await whopLoad(env) });
+      if (url.pathname === '/api/whop' && req.method === 'POST') return await whopSave(req, env);
     } catch (e) {
       return text(`Something went wrong: ${e.message}`, 502);
     }
@@ -271,6 +272,24 @@ async function igCall(url, init) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body.error) throw new Error(body.error?.message || body.error_message || `Instagram returned ${res.status}`);
   return body;
+}
+
+// Whop payouts, logged by hand on the dashboard (Whop has no public earnings feed). KV key 'whop'.
+const whopLoad = async (env) => (await env.HQ.get('whop', 'json')) || { payouts: [] };
+async function whopSave(req, env) {
+  // JSON only: browsers can't send it cross-site without a preflight, which this Worker never answers.
+  if (!(req.headers.get('Content-Type') || '').startsWith('application/json')) return text('Expected JSON', 415);
+  const b = await req.json().catch(() => ({}));
+  const data = await whopLoad(env);
+  if (b.action === 'add') {
+    const amount = Math.round(Number(b.amount) * 100) / 100;
+    if (!(amount > 0 && amount < 1e6) || !/^\d{4}-\d{2}-\d{2}$/.test(b.date || '')) return text('Enter an amount and a date.', 400);
+    data.payouts.push({ id: crypto.randomUUID(), amount, date: b.date, note: String(b.note || '').slice(0, 80) });
+  } else if (b.action === 'remove') {
+    data.payouts = data.payouts.filter(x => x.id !== b.id);
+  } else return text('Unknown action', 400);
+  await env.HQ.put('whop', JSON.stringify(data));
+  return json(data);
 }
 
 const igLoad = async (env) => (await env.HQ.get(IG_KEY, 'json')) || { accounts: [], videos: {}, updated_at: null };
