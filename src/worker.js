@@ -1,4 +1,4 @@
-// Sign in with TikTok / Instagram and official stats. Static files are served by Cloudflare before this runs;
+// Sign in with TikTok / Instagram / YouTube and official stats. Static files are served by Cloudflare before this runs;
 // only /auth/* and /api/* reach it. Tokens stay in KV and never leave the Worker.
 // /api/data also hands the page the stats files from GitHub, so browsers never hit GitHub's
 // 60-requests-an-hour limit for visitors without a login.
@@ -20,7 +20,7 @@ export default {
     if (!(await fromAccess(req, env))) return text('Sign in to the dashboard first.', 403);
     // TikTok and Instagram only accept the callback address registered with them, so sign-ins always
     // run on AUTH_ORIGIN (the workers.dev address) and then send the person back to HOME_ORIGIN.
-    if (env.AUTH_ORIGIN && url.origin !== env.AUTH_ORIGIN && /^\/auth\/(tiktok|instagram)\/(start|setup)$/.test(url.pathname))
+    if (env.AUTH_ORIGIN && url.origin !== env.AUTH_ORIGIN && /^\/auth\/(tiktok|instagram|youtube)\/(start|setup)$/.test(url.pathname))
       return new Response(null, { status: 302, headers: { Location: env.AUTH_ORIGIN + url.pathname } });
     try {
       if (url.pathname === '/auth/tiktok/start') return start(url, env);
@@ -29,8 +29,11 @@ export default {
       if (url.pathname === '/auth/instagram/setup') return await igSetup(req, url, env);
       if (url.pathname === '/auth/instagram/start') return await igStart(url, env);
       if (url.pathname === '/auth/instagram/callback') return await igCallback(req, url, env);
+      if (url.pathname === '/auth/youtube/setup') return await ytSetup(req, url, env);
+      if (url.pathname === '/auth/youtube/start') return await ytStart(url, env);
+      if (url.pathname === '/auth/youtube/callback') return await ytCallback(req, url, env);
       if (url.pathname === '/api/tiktok') return json(await load(env));
-      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env), whop: await whopLoad(env) });
+      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env), youtube: await ytLoad(env), whop: await whopLoad(env) });
       if (url.pathname === '/api/whop' && req.method === 'POST') return await whopSave(req, env);
     } catch (e) {
       return text(`Something went wrong: ${e.message}`, 502);
@@ -40,6 +43,7 @@ export default {
   async scheduled(_event, env) {
     await sync(env);
     await igSync(env);
+    await ytSync(env);
   },
 };
 
@@ -274,6 +278,124 @@ async function igCall(url, init) {
   return body;
 }
 
+// Sign in with YouTube (Google OAuth, read-only). Same shape again: the refresh token stays in KV and
+// the cron pulls each channel's subscribers and per-Short numbers into KV 'youtube'. Google's chooser
+// lets the person pick a Brand Account channel, so one Google login can connect several channels.
+const YT_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
+const YT_API = 'https://www.googleapis.com/youtube/v3';
+const YT_SCOPES = 'https://www.googleapis.com/auth/youtube.readonly';
+const YT_KEY = 'youtube';
+
+// The Google OAuth client's id and secret are pasted once into /auth/youtube/setup, like Instagram's.
+async function ytApp(env) {
+  if (env.YOUTUBE_CLIENT_ID && env.YOUTUBE_CLIENT_SECRET) return { id: env.YOUTUBE_CLIENT_ID, secret: env.YOUTUBE_CLIENT_SECRET };
+  return (await env.HQ.get('ytapp', 'json')) || {};
+}
+
+async function ytSetup(req, url, env) {
+  if (req.method === 'POST') {
+    if (req.headers.get('Origin') !== url.origin) return text('Forbidden', 403);
+    const f = await req.formData();
+    const id = String(f.get('id') || '').trim(), secret = String(f.get('secret') || '').trim();
+    if (!/^[\w-]+\.apps\.googleusercontent\.com$/.test(id) || !/^[\w-]{20,64}$/.test(secret)) return text('That doesn\'t look like a Google OAuth client ID and secret. Go back and check both.', 400);
+    await env.HQ.put('ytapp', JSON.stringify({ id, secret }));
+    return new Response(null, { status: 302, headers: { Location: '/auth/youtube/start' } });
+  }
+  const has = !!(await ytApp(env)).id;
+  return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>YouTube setup</title>
+<body style="font:16px system-ui;max-width:32rem;margin:2rem auto;padding:0 16px">
+<h1>Connect YouTube</h1><p>${has ? 'A client is already saved. Saving again replaces it.' : 'Paste the OAuth client ID and secret from the Google Cloud project (YouTube Data API v3 turned on).'}</p>
+<p>Authorized redirect URI to put in the client: <code>${url.origin}/auth/youtube/callback</code></p>
+<form method="post"><p><label>Client ID<br><input name="id" required style="width:100%"></label></p>
+<p><label>Client secret<br><input name="secret" type="password" required style="width:100%"></label></p>
+<button>Save and sign in with YouTube</button></form>`, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
+async function ytStart(url, env) {
+  const app = await ytApp(env);
+  if (!app.id) return new Response(null, { status: 302, headers: { Location: '/auth/youtube/setup' } });
+  const state = crypto.randomUUID();
+  // consent + offline: Google only hands out a refresh token when it asks for consent.
+  const q = new URLSearchParams({ client_id: app.id, redirect_uri: `${url.origin}/auth/youtube/callback`, response_type: 'code', scope: YT_SCOPES,
+    access_type: 'offline', prompt: 'select_account consent', include_granted_scopes: 'true', state });
+  return new Response(null, {
+    status: 302,
+    headers: { Location: `${YT_AUTH}?${q}`, 'Set-Cookie': `yt_state=${state}; Path=/auth/youtube; Max-Age=600; HttpOnly; Secure; SameSite=Lax` },
+  });
+}
+
+async function ytCallback(req, url, env) {
+  const state = (req.headers.get('Cookie') || '').match(/(?:^|;\s*)yt_state=([^;]+)/)?.[1];
+  if (!state || state !== url.searchParams.get('state')) return back(url, 'error=state');
+  const code = url.searchParams.get('code');
+  if (!code) return back(url, 'error=' + encodeURIComponent(url.searchParams.get('error') || 'denied'));
+  const app = await ytApp(env);
+  const tok = await ytToken(app, { grant_type: 'authorization_code', code, redirect_uri: `${url.origin}/auth/youtube/callback` });
+  if (!tok.refresh_token) return back(url, 'error=' + encodeURIComponent('Google sent no refresh token; remove the app at myaccount.google.com/permissions and sign in again'));
+  const ch = (await ytCall(`/channels?part=id&mine=true`, tok.access_token)).items?.[0];
+  if (!ch) return back(url, 'error=' + encodeURIComponent('that Google login has no YouTube channel'));
+  await env.HQ.put(`yttok:${ch.id}`, JSON.stringify(tok));
+  const data = await ytLoad(env);
+  if (!data.accounts.some(a => a.id === ch.id)) data.accounts.push({ id: ch.id });
+  const synced = await ytSync(env, data);
+  return back(url, 'connected=' + encodeURIComponent(synced.accounts.find(a => a.id === ch.id)?.account || 'YouTube'));
+}
+
+async function ytSync(env, data) {
+  data ||= await ytLoad(env);
+  if (!data.accounts.length) return data;
+  const app = await ytApp(env);
+  for (const a of data.accounts) {
+    try {
+      const at = await ytFresh(env, app, a.id);
+      const c = (await ytCall(`/channels?part=snippet,statistics,contentDetails&mine=true`, at)).items?.[0];
+      if (!c) throw new Error('channel not found');
+      Object.assign(a, { account: c.snippet.customUrl ? (c.snippet.customUrl.startsWith('@') ? c.snippet.customUrl : '@' + c.snippet.customUrl) : c.snippet.title,
+        title: c.snippet.title, avatar_url: c.snippet.thumbnails?.default?.url, followers: +c.statistics.subscriberCount || 0,
+        views: +c.statistics.viewCount || 0, video_count: +c.statistics.videoCount || 0, status: 'ok', error: undefined, as_of: new Date().toISOString() });
+      // Newest 50 uploads, then their numbers in one call.
+      const items = (await ytCall(`/playlistItems?part=contentDetails&maxResults=50&playlistId=${c.contentDetails.relatedPlaylists.uploads}`, at)).items || [];
+      const ids = items.map(i => i.contentDetails.videoId).join(',');
+      if (ids) for (const v of (await ytCall(`/videos?part=snippet,statistics&id=${ids}`, at)).items || []) {
+        data.videos[v.id] = { channel_id: a.id, url: `https://www.youtube.com/shorts/${v.id}`, title: v.snippet.title, created: Date.parse(v.snippet.publishedAt) / 1000,
+          views: +v.statistics.viewCount || 0, likes: +v.statistics.likeCount || 0, comments: +v.statistics.commentCount || 0 };
+      }
+    } catch (e) {
+      a.status = /token|invalid_grant|auth|credentials/i.test(e.message) ? 'reconnect' : 'error';
+      a.error = e.message;
+    }
+  }
+  data.updated_at = new Date().toISOString();
+  await env.HQ.put(YT_KEY, JSON.stringify(data));
+  return data;
+}
+
+// Google access tokens last an hour; the refresh token is kept and reused.
+async function ytFresh(env, app, id) {
+  const tok = await env.HQ.get(`yttok:${id}`, 'json');
+  if (!tok) throw new Error('No token stored; sign in again');
+  if (tok.expires_at - Date.now() > 300e3) return tok.access_token;
+  const next = { ...tok, ...(await ytToken(app, { grant_type: 'refresh_token', refresh_token: tok.refresh_token })) };
+  await env.HQ.put(`yttok:${id}`, JSON.stringify(next));
+  return next.access_token;
+}
+
+async function ytToken(app, params) {
+  const res = await fetch('https://oauth2.googleapis.com/token', form({ client_id: app.id, client_secret: app.secret, ...params }));
+  const r = await res.json().catch(() => ({}));
+  if (!res.ok || r.error) throw new Error(r.error_description || r.error || `Google returned ${res.status}`);
+  return { ...r, expires_at: Date.now() + r.expires_in * 1000 };
+}
+
+async function ytCall(path, accessToken) {
+  const res = await fetch(YT_API + path, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.error) throw new Error(body.error?.message || `YouTube returned ${res.status}`);
+  return body;
+}
+
+const ytLoad = async (env) => (await env.HQ.get(YT_KEY, 'json')) || { accounts: [], videos: {}, updated_at: null };
+
 // Whop payouts, logged by hand on the dashboard (Whop has no public earnings feed). KV key 'whop'.
 const whopLoad = async (env) => (await env.HQ.get('whop', 'json')) || { payouts: [] };
 async function whopSave(req, env) {
@@ -326,7 +448,7 @@ const form = (o) => ({ method: 'POST', headers: { 'Content-Type': 'application/x
 // TIKTOK_REDIRECT_URI lets TikTok send people back via the public github.io page (tiktok-callback.html),
 // for when TikTok wants the return address on the verified site; that page forwards here.
 const redirectUri = (url, env) => env.TIKTOK_REDIRECT_URI || `${url.origin}/auth/tiktok/callback`;
-const back = (url, q) => new Response(null, { status: 302, headers: { Location: `${HOME || url.origin}/?${q}`, 'Set-Cookie': url.pathname.startsWith('/auth/instagram') ? 'ig_state=; Path=/auth/instagram; Max-Age=0' : 'tt_state=; Path=/auth/tiktok; Max-Age=0' } });
+const back = (url, q) => new Response(null, { status: 302, headers: { Location: `${HOME || url.origin}/?${q}`, 'Set-Cookie': `${{ instagram: 'ig', youtube: 'yt' }[url.pathname.split('/')[2]] || 'tt'}_state=; Path=/auth/${url.pathname.split('/')[2]}; Max-Age=0` } });
 const json = (o) => new Response(JSON.stringify(o), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const text = (t, status) => new Response(t, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 const b64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), c => c.charCodeAt(0));
