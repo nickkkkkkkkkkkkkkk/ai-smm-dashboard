@@ -8,7 +8,7 @@
     "followers": 4,
     "following": 3,
     "profile_likes": 557,
-    "as_of": "2026-10-29T07:31:36Z",
+    "as_of": "2026-10-29T07:41:41Z",
     "avatar": "data/avatars/nickblox40.jpg",
     "schedule": [
       "2026-10-26T12:00:00-04:00",
@@ -70,7 +70,7 @@
     "followers": 49,
     "following": 0,
     "profile_likes": 0,
-    "as_of": "2026-10-29T07:31:36Z",
+    "as_of": "2026-10-29T07:41:41Z",
     "avatar": "data/avatars/nickblox40-youtube.jpg",
     "channel_id": "UCNu7d42TPKl1kAoEAoEAFYQ",
     "schedule": [
@@ -191,19 +191,20 @@
     "account": "@nickclippedx",
     "niche": "Clipping",
     "tracking": "active",
-    "last_update_status": "pending",
+    "last_update_status": "ok",
     "followers": 0,
     "following": 0,
     "profile_likes": 0,
-    "as_of": null,
-    "avatar": "",
+    "as_of": "2026-10-29T07:41:41Z",
+    "avatar": "data/avatars/nickclippedx-youtube.jpg",
     "campaign": {
       "name": "DiegoLoveless (Marvel Rivals)",
       "via": "Whop",
       "rate_per_1k": 1.5,
       "min_views": 1000,
       "max_per_clip": 500
-    }
+    },
+    "channel_id": "UCOvy_kMCtG_BvRbE3aixMAg"
   },
   {
     "platform": "instagram",
