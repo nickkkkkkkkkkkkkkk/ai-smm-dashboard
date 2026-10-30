@@ -33,7 +33,7 @@ export default {
       if (url.pathname === '/auth/youtube/start') return await ytStart(url, env);
       if (url.pathname === '/auth/youtube/callback') return await ytCallback(req, url, env);
       if (url.pathname === '/api/tiktok') return json(await load(env));
-      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env), youtube: await ytLoad(env), whop: await whopLoad(env) });
+      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env), youtube: await ytLoad(env), whop: await whopLoad(env), moments: (await env.HQ.get('moments', 'json')) || [] });
       if (url.pathname === '/api/whop' && req.method === 'POST') return await whopSave(req, env);
     } catch (e) {
       return text(`Something went wrong: ${e.message}`, 502);
@@ -41,9 +41,8 @@ export default {
     return text('Not found', 404);
   },
   async scheduled(_event, env) {
-    await sync(env);
-    await igSync(env);
-    await ytSync(env);
+    const t = await sync(env), i = await igSync(env), y = await ytSync(env);
+    await moment(env, t, i, y);
   },
 };
 
@@ -395,6 +394,39 @@ async function ytCall(path, accessToken) {
 }
 
 const ytLoad = async (env) => (await env.HQ.get(YT_KEY, 'json')) || { accounts: [], videos: {}, updated_at: null };
+
+// Notifications: after each 10-minute refresh, compare every account and video with the last run
+// and keep the single biggest change as a "moment" (KV 'moments', newest first, last 50).
+// Crossing a round number counts more than a plain gain, and followers more than views.
+const MILESTONES = [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1e6];
+async function moment(env, t, i, y) {
+  const now = {}, info = {};
+  const add = (key, n, meta) => { now[key] = n; info[key] = meta; };
+  const who = (list, id, k) => list.accounts.find(a => a[k] === id)?.account || '';
+  for (const a of t.accounts) if (a.status === 'ok') add(`f:tiktok:${a.account}`, a.followers, { kind: 'followers', platform: 'tiktok', account: a.account });
+  for (const a of i.accounts) if (a.status === 'ok') add(`f:instagram:${a.account}`, a.followers, { kind: 'followers', platform: 'instagram', account: a.account });
+  for (const a of y.accounts) if (a.status === 'ok') add(`f:youtube:${a.account}`, a.followers, { kind: 'followers', platform: 'youtube', account: a.account });
+  for (const [id, v] of Object.entries(t.videos)) add(`v:tiktok:${id}`, v.views || 0, { kind: 'views', platform: 'tiktok', account: who(t, v.open_id, 'open_id'), title: v.title, url: v.url });
+  for (const [id, v] of Object.entries(i.videos)) if (v.views != null) add(`v:instagram:${id}`, v.views, { kind: 'views', platform: 'instagram', account: who(i, v.ig_id, 'id'), title: v.title, url: v.url });
+  for (const [id, v] of Object.entries(y.videos)) add(`v:youtube:${id}`, v.views || 0, { kind: 'views', platform: 'youtube', account: who(y, v.channel_id, 'id'), title: v.title, url: v.url });
+  const prev = await env.HQ.get('snap', 'json');
+  await env.HQ.put('snap', JSON.stringify(now));
+  if (!prev) return;
+  let best = null;
+  for (const [key, n] of Object.entries(now)) {
+    const was = prev[key], m = info[key];
+    if (was == null || n <= was) continue;
+    const gain = n - was, crossed = MILESTONES.filter(x => was < x && n >= x).pop();
+    const score = gain * (m.kind === 'followers' ? 20 : 1) * (crossed ? 3 : 1);
+    if (!best || score > best.score) best = { ...m, gain, total: n, milestone: crossed || null, score };
+  }
+  if (!best) return;
+  const list = (await env.HQ.get('moments', 'json')) || [];
+  delete best.score;
+  best.title = (best.title || '').replace(/\s+/g, ' ').slice(0, 90);
+  list.unshift({ at: new Date().toISOString(), ...best });
+  await env.HQ.put('moments', JSON.stringify(list.slice(0, 50)));
+}
 
 // Whop payouts, logged by hand on the dashboard (Whop has no public earnings feed). KV key 'whop'.
 const whopLoad = async (env) => (await env.HQ.get('whop', 'json')) || { payouts: [] };

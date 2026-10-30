@@ -178,6 +178,37 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .tile .num.flash { animation: flash 2s ease-out; }
 @media (max-width: 40rem) { .refresh { align-items: flex-start; } }
 @media (max-width: 40rem) { .tiles { grid-template-columns: 1fr 1fr; gap: 10px; } .tiles .tile:last-child { grid-column: 1 / -1; } .ico { display: none; } .card, .tile { padding: 18px; border-radius: 18px; } .card > .note { margin-inline: -18px; padding-inline: 18px; } }
+.bell { position: relative; margin-left: auto; }
+.bell-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); color: var(--fg); cursor: pointer; }
+.bell-btn:hover { background: var(--panel-2); }
+.bell-dot { position: absolute; top: 6px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--accent-2); color: #fff; font-size: .65rem; font-weight: 700; line-height: 16px; text-align: center; }
+.bell-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; width: min(22rem, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 16px 40px rgb(0 0 0 / .5); padding: 8px; }
+.bell-h { font-size: .78rem; color: var(--muted); padding: 6px 8px 8px; }
+.moment { display: block; padding: 10px; border-radius: 12px; color: inherit; text-decoration: none; }
+.moment:hover { background: var(--panel-2); } .moment.new { background: rgb(88 101 242 / .12); }
+.moment .big { font-weight: 600; font-size: .92rem; } .moment .t { font-size: .82rem; color: var(--fg); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .moment .m { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+.feed { display: none; }
+@media (min-width: 76rem) {
+  body { padding-right: 21rem; }
+  .bell { display: none; }
+  .feed { display: flex; flex-direction: column; position: fixed; top: 0; right: 0; bottom: 0; width: 21rem; background: var(--panel); border-left: 1px solid var(--line); z-index: 4; }
+  .feed-h { display: flex; align-items: center; gap: 8px; padding: 16px 18px; font-weight: 600; font-size: .85rem; letter-spacing: .04em; text-transform: uppercase; border-bottom: 1px solid var(--line); }
+  .feed-live { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 0 0 rgb(226 85 127 / .6); animation: pulse 2s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 7px rgb(226 85 127 / 0); } 100% { box-shadow: 0 0 0 0 rgb(226 85 127 / 0); } }
+  .feed-list { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .feed-list > :first-child { margin-top: auto; }
+  .chat { padding: 6px 8px; border-radius: 6px; font-size: .86rem; line-height: 1.45; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+  .chat:hover { background: var(--panel-2); }
+  .chat .ts { color: var(--muted); font-size: .75rem; margin-right: 6px; font-variant-numeric: tabular-nums; }
+  .chat .who { display: inline; font-weight: 700; margin-right: 4px; }
+  .chat .who.tiktok { color: #25f4ee; } .chat .who.youtube { color: #ff4e45; } .chat .who.instagram { color: #e1306c; }
+  .chat .ttl { color: var(--muted); }
+  .chat.fresh { animation: pop .6s ease-out; }
+  @keyframes pop { from { background: rgb(88 101 242 / .25); } to { background: transparent; } }
+  .feed-foot { padding: 10px 18px 14px; font-size: .72rem; color: var(--muted); border-top: 1px solid var(--line); }
+}
+@media (prefers-reduced-motion: reduce) { .feed-live, .chat.fresh { animation: none; } }
+@media (max-width: 40rem) { .bell { margin-left: 0; } }
 body.all-accounts #t-next-tile, body.all-accounts section.card { display: none; }
 body.all-accounts section.card#earnings { display: block; } #earnings[hidden] { display: none !important; }
 .earn-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
@@ -195,6 +226,11 @@ body.all-accounts section.card#earnings { display: block; } #earnings[hidden] { 
 </style>
 </head>
 <body>
+<aside class="feed" id="feed" aria-label="Live feed">
+  <div class="feed-h"><span class="feed-live"></span>Live feed</div>
+  <div class="feed-list" id="feed-list" role="log" aria-live="polite"></div>
+  <div class="feed-foot">The biggest moment from each 10-minute update</div>
+</aside>
 <div class="wrap">
   <div class="topbar">
   <div class="acct" id="acct">
@@ -212,6 +248,10 @@ body.all-accounts section.card#earnings { display: block; } #earnings[hidden] { 
     </div>
   </div>
   <nav class="nav" aria-label="Pages"><a href="#content" id="nav-content">Content</a><button type="button" class="nav-test">test</button><button type="button" class="nav-test">test</button><button type="button" class="nav-test">test</button></nav>
+  <div class="bell" id="bell">
+    <button type="button" class="bell-btn" id="bell-btn" aria-label="Notifications" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="bell-dot" id="bell-dot" hidden></span></button>
+    <div class="bell-panel" id="bell-panel" hidden><div class="bell-h">Biggest moment of each update</div><div id="bell-list"></div></div>
+  </div>
   <div class="refresh" id="refresh" role="status"><span class="pill live" id="r-pill">Checking…</span><span class="r-sub" id="r-sub"></span></div>
   </div>
 
@@ -605,6 +645,49 @@ async function saveWhop(body) {
   });
 })();
 
+// Notifications: the Worker keeps the biggest change from each 10-minute refresh (src/worker.js moment()).
+let moments = [];
+const seenAt = () => { try { return localStorage.getItem('hq-seen') || ''; } catch { return ''; } };
+// Wide screens: the same moments as a chat-style feed on the right, oldest at the top, newest at the bottom.
+let feedShown = '';
+function drawFeed() {
+  const box = document.getElementById('feed-list');
+  if (!moments.length) { box.replaceChildren(el('p', 'note', 'Waiting for the first update…')); return; }
+  const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.replaceChildren(...[...moments].reverse().map(m => {
+    const a = el(m.url ? 'a' : 'div', 'chat' + (feedShown && m.at > feedShown ? ' fresh' : '')); if (m.url) { a.href = m.url; a.target = '_blank'; a.rel = 'noopener'; }
+    a.append(el('span', 'ts', new Date(m.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })), el('span', 'who ' + m.platform, `${m.account}:`), document.createTextNode(momentText(m) + (m.title ? ' ' : '')));
+    if (m.title) a.appendChild(el('span', 'ttl', `— ${m.title}`));
+    return a;
+  }));
+  feedShown = moments[0].at;
+  if (stick || !box.dataset.ready) { box.scrollTop = box.scrollHeight; box.dataset.ready = '1'; }
+}
+const momentText = (m) => m.kind === 'followers' ? (m.milestone ? `just hit ${fmt(m.milestone)} followers 🎉` : `+${fmt(m.gain)} follower${m.gain === 1 ? '' : 's'} (now ${fmt(m.total)})`)
+  : m.milestone ? `video passed ${fmt(m.milestone)} views 🎉` : `+${fmt(m.gain)} views (now ${fmt(m.total)})`;
+function drawBell() {
+  drawFeed();
+  const seen = seenAt(), fresh = moments.filter(m => m.at > seen).length, dot = document.getElementById('bell-dot');
+  dot.hidden = !fresh; dot.textContent = fresh > 9 ? '9+' : fresh;
+  const list = document.getElementById('bell-list');
+  if (!moments.length) { list.replaceChildren(el('p', 'note', 'Nothing yet. The first moment shows up after the next update or two.')); return; }
+  list.replaceChildren(...moments.map(m => {
+    const a = el('a', 'moment' + (m.at > seen ? ' new' : '')); if (m.url) { a.href = m.url; a.target = '_blank'; a.rel = 'noopener'; }
+    const what = m.kind === 'followers' ? (m.milestone ? `Hit ${fmt(m.milestone)} followers` : `+${fmt(m.gain)} follower${m.gain === 1 ? '' : 's'}`)
+      : m.milestone ? `Passed ${fmt(m.milestone)} views` : `+${fmt(m.gain)} views`;
+    a.appendChild(el('div', 'big', `${what} on ${PLAT[m.platform] || m.platform}`));
+    if (m.title) a.appendChild(el('div', 't', m.title));
+    a.appendChild(el('div', 'm', `${m.account} · now ${fmt(m.total)} ${m.kind} · ${ago(m.at).replace('updated ', '')}`));
+    return a;
+  }));
+}
+(() => {
+  const b = document.getElementById('bell-btn'), p = document.getElementById('bell-panel');
+  const show = (o) => { p.hidden = !o; b.setAttribute('aria-expanded', String(o)); if (!o && moments[0]) { try { localStorage.setItem('hq-seen', moments[0].at); } catch {} drawBell(); } };
+  b.addEventListener('click', () => show(p.hidden));
+  document.addEventListener('click', (e) => { if (!p.hidden && !e.composedPath().some(n => n.id === 'bell')) show(false); });
+})();
+
 // The updater refreshes every 10 minutes after the last update (see .github/workflows/update.yml).
 function drawRefresh() {
   const pill = document.getElementById('r-pill'), sub = document.getElementById('r-sub');
@@ -640,7 +723,7 @@ document.getElementById('acct-list').addEventListener('click', (e) => {
 // official TikTok numbers; the bundled copy is only a last resort.
 const ON_PAGES = location.hostname.endsWith('github.io');
 const local = (f) => fetch(`data/${f}?t=${Date.now()}`, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(f); return r.json(); });
-const localAll = async () => { const [accounts, posts, meta, stories] = await Promise.all(['accounts', 'posts', 'meta', 'stories'].map(f => local(f + '.json').catch(() => null))); return { files: { accounts, posts, meta, stories }, tiktok: null, instagram: null, youtube: null, whop: null }; };
+const localAll = async () => { const [accounts, posts, meta, stories] = await Promise.all(['accounts', 'posts', 'meta', 'stories'].map(f => local(f + '.json').catch(() => null))); return { files: { accounts, posts, meta, stories }, tiktok: null, instagram: null, youtube: null, whop: null, moments: null }; };
 const getAll = () => ON_PAGES ? localAll() : fetch('/api/data', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('data'); return r.json(); }).catch(localAll);
 const asset = (path) => ON_PAGES ? path : `https://raw.githubusercontent.com/${REPO}/main/${path}`;
 // Accounts signed in with TikTok get official numbers from the Worker, laid over the public-page ones.
@@ -707,7 +790,9 @@ const flash = () => document.querySelectorAll('.tile .num').forEach(n => { n.cla
 async function load() {
   try {
     const first = !meta.updated_at;
-    const { files: f, tiktok: t, instagram: g, youtube: y, whop: w } = await getAll();
+    const { files: f, tiktok: t, instagram: g, youtube: y, whop: w, moments: mo } = await getAll();
+    if (mo) moments = mo;
+    drawBell();
     if (!f.accounts || !f.posts || !f.meta) throw new Error('missing data');
     base = { accounts: f.accounts, posts: f.posts }; meta = f.meta; stories = f.stories || stories; if (t) tt = t; if (g) ig = g; if (y) yt = y; if (w) whop = w; merge(); draw();
     if (!first) flash();
@@ -717,7 +802,8 @@ async function load() {
 async function check() {
   if (document.hidden) return;
   try {
-    const { files: f, tiktok: t, instagram: g, youtube: y, whop: w } = await getAll();
+    const { files: f, tiktok: t, instagram: g, youtube: y, whop: w, moments: mo } = await getAll();
+    if (mo && (mo[0] || {}).at !== (moments[0] || {}).at) { moments = mo; drawBell(); }
     if (!f.meta || !f.accounts || !f.posts) return;
     if (w && JSON.stringify(w) !== JSON.stringify(whop)) { whop = w; drawEarnings(); }
     const fresh = f.meta.updated_at !== meta.updated_at, ttFresh = t && t.updated_at !== (tt && tt.updated_at), igFresh = g && g.updated_at !== (ig && ig.updated_at), ytFresh = y && y.updated_at !== (yt && yt.updated_at);
