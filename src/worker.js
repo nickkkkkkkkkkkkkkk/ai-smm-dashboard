@@ -33,7 +33,8 @@ export default {
       if (url.pathname === '/auth/youtube/start') return await ytStart(url, env);
       if (url.pathname === '/auth/youtube/callback') return await ytCallback(req, url, env);
       if (url.pathname === '/api/tiktok') return json(await load(env));
-      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env), youtube: await ytLoad(env), whop: await whopLoad(env), moments: (await env.HQ.get('moments', 'json')) || [] });
+      if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env), youtube: await ytLoad(env), whop: await whopLoad(env), feed: await feedLoad(env) });
+      if (url.pathname === '/api/seen' && req.method === 'POST') return await markSeen(req, env);
       if (url.pathname === '/api/whop' && req.method === 'POST') return await whopSave(req, env);
     } catch (e) {
       return text(`Something went wrong: ${e.message}`, 502);
@@ -42,7 +43,7 @@ export default {
   },
   async scheduled(_event, env) {
     const t = await sync(env), i = await igSync(env), y = await ytSync(env);
-    await moment(env, t, i, y);
+    await snapshot(env, t, i, y);
   },
 };
 
@@ -395,37 +396,29 @@ async function ytCall(path, accessToken) {
 
 const ytLoad = async (env) => (await env.HQ.get(YT_KEY, 'json')) || { accounts: [], videos: {}, updated_at: null };
 
-// Notifications: after each 10-minute refresh, compare every account and video with the last run
-// and keep the single biggest change as a "moment" (KV 'moments', newest first, last 50).
-// Crossing a round number counts more than a plain gain, and followers more than views.
-const MILESTONES = [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1e6];
-async function moment(env, t, i, y) {
-  const now = {}, info = {};
-  const add = (key, n, meta) => { now[key] = n; info[key] = meta; };
+// Notifications: each 10-minute refresh saves every account's followers and every video's views
+// (KV 'cur'). 'seen' is the copy from when the owner last marked the feed as seen (POST /api/seen),
+// so the page can show one line per video with its total change since then.
+async function snapshot(env, t, i, y) {
+  const nums = {}, info = {};
+  const add = (key, n, meta) => { nums[key] = n; info[key] = meta; };
   const who = (list, id, k) => list.accounts.find(a => a[k] === id)?.account || '';
-  for (const a of t.accounts) if (a.status === 'ok') add(`f:tiktok:${a.account}`, a.followers, { kind: 'followers', platform: 'tiktok', account: a.account });
-  for (const a of i.accounts) if (a.status === 'ok') add(`f:instagram:${a.account}`, a.followers, { kind: 'followers', platform: 'instagram', account: a.account });
-  for (const a of y.accounts) if (a.status === 'ok') add(`f:youtube:${a.account}`, a.followers, { kind: 'followers', platform: 'youtube', account: a.account });
-  for (const [id, v] of Object.entries(t.videos)) add(`v:tiktok:${id}`, v.views || 0, { kind: 'views', platform: 'tiktok', account: who(t, v.open_id, 'open_id'), title: v.title, url: v.url });
-  for (const [id, v] of Object.entries(i.videos)) if (v.views != null) add(`v:instagram:${id}`, v.views, { kind: 'views', platform: 'instagram', account: who(i, v.ig_id, 'id'), title: v.title, url: v.url });
-  for (const [id, v] of Object.entries(y.videos)) add(`v:youtube:${id}`, v.views || 0, { kind: 'views', platform: 'youtube', account: who(y, v.channel_id, 'id'), title: v.title, url: v.url });
-  const prev = await env.HQ.get('snap', 'json');
-  await env.HQ.put('snap', JSON.stringify(now));
-  if (!prev) return;
-  let best = null;
-  for (const [key, n] of Object.entries(now)) {
-    const was = prev[key], m = info[key];
-    if (was == null || n <= was) continue;
-    const gain = n - was, crossed = MILESTONES.filter(x => was < x && n >= x).pop();
-    const score = gain * (m.kind === 'followers' ? 20 : 1) * (crossed ? 3 : 1);
-    if (!best || score > best.score) best = { ...m, gain, total: n, milestone: crossed || null, score };
-  }
-  if (!best) return;
-  const list = (await env.HQ.get('moments', 'json')) || [];
-  delete best.score;
-  best.title = (best.title || '').replace(/\s+/g, ' ').slice(0, 90);
-  list.unshift({ at: new Date().toISOString(), ...best });
-  await env.HQ.put('moments', JSON.stringify(list.slice(0, 50)));
+  const clip = (s) => (s || '').replace(/\s+/g, ' ').slice(0, 90);
+  for (const [plat, list] of [['tiktok', t], ['instagram', i], ['youtube', y]])
+    for (const a of list.accounts) if (a.status === 'ok') add(`f:${plat}:${a.account}`, a.followers || 0, { kind: 'followers', platform: plat, account: a.account });
+  for (const [id, v] of Object.entries(t.videos)) add(`v:tiktok:${id}`, v.views || 0, { kind: 'views', platform: 'tiktok', account: who(t, v.open_id, 'open_id'), title: clip(v.title), url: v.url });
+  for (const [id, v] of Object.entries(i.videos)) if (v.views != null) add(`v:instagram:${id}`, v.views, { kind: 'views', platform: 'instagram', account: who(i, v.ig_id, 'id'), title: clip(v.title), url: v.url });
+  for (const [id, v] of Object.entries(y.videos)) add(`v:youtube:${id}`, v.views || 0, { kind: 'views', platform: 'youtube', account: who(y, v.channel_id, 'id'), title: clip(v.title), url: v.url });
+  const cur = { at: new Date().toISOString(), nums, info };
+  await env.HQ.put('cur', JSON.stringify(cur));
+  if (!(await env.HQ.get('seen'))) await env.HQ.put('seen', JSON.stringify({ at: cur.at, nums }));
+}
+const feedLoad = async (env) => ({ cur: await env.HQ.get('cur', 'json'), seen: await env.HQ.get('seen', 'json') });
+async function markSeen(req, env) {
+  if (!(req.headers.get('Content-Type') || '').startsWith('application/json')) return text('Expected JSON', 415);
+  const cur = await env.HQ.get('cur', 'json');
+  if (cur) await env.HQ.put('seen', JSON.stringify({ at: cur.at, nums: cur.nums }));
+  return json(await feedLoad(env));
 }
 
 // Whop payouts, logged by hand on the dashboard (Whop has no public earnings feed). KV key 'whop'.

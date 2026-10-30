@@ -196,18 +196,17 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
   .feed-live { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 0 0 rgb(226 85 127 / .6); animation: pulse 2s infinite; }
   @keyframes pulse { 70% { box-shadow: 0 0 0 7px rgb(226 85 127 / 0); } 100% { box-shadow: 0 0 0 0 rgb(226 85 127 / 0); } }
   .feed-list { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
-  .feed-list > :first-child { margin-top: auto; }
+  .feed-seen { margin-left: auto; font: inherit; font-size: .72rem; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+  .feed-seen:hover { background: var(--line); }
+  .feed-since { padding: 8px 18px 0; font-size: .75rem; color: var(--muted); }
   .chat { padding: 6px 8px; border-radius: 6px; font-size: .86rem; line-height: 1.45; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
   .chat:hover { background: var(--panel-2); }
-  .chat .ts { color: var(--muted); font-size: .75rem; margin-right: 6px; font-variant-numeric: tabular-nums; }
   .chat .who { display: inline; font-weight: 700; margin-right: 4px; }
   .chat .who.tiktok { color: #25f4ee; } .chat .who.youtube { color: #ff4e45; } .chat .who.instagram { color: #e1306c; }
   .chat .ttl { color: var(--muted); }
-  .chat.fresh { animation: pop .6s ease-out; }
-  @keyframes pop { from { background: rgb(88 101 242 / .25); } to { background: transparent; } }
   .feed-foot { padding: 10px 18px 14px; font-size: .72rem; color: var(--muted); border-top: 1px solid var(--line); }
 }
-@media (prefers-reduced-motion: reduce) { .feed-live, .chat.fresh { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .feed-live { animation: none; } }
 @media (max-width: 40rem) { .bell { margin-left: 0; } }
 body.all-accounts #t-next-tile, body.all-accounts section.card { display: none; }
 body.all-accounts section.card#earnings { display: block; } #earnings[hidden] { display: none !important; }
@@ -227,9 +226,10 @@ body.all-accounts section.card#earnings { display: block; } #earnings[hidden] { 
 </head>
 <body>
 <aside class="feed" id="feed" aria-label="Live feed">
-  <div class="feed-h"><span class="feed-live"></span>Live feed</div>
+  <div class="feed-h"><span class="feed-live"></span>Live feed<button type="button" class="feed-seen" id="feed-seen">Mark as seen</button></div>
+  <div class="feed-since" id="feed-since"></div>
   <div class="feed-list" id="feed-list" role="log" aria-live="polite"></div>
-  <div class="feed-foot">The biggest moment from each 10-minute update</div>
+  <div class="feed-foot">Each video's total change since you last marked the feed as seen. Updates every 10 minutes.</div>
 </aside>
 <div class="wrap">
   <div class="topbar">
@@ -250,7 +250,7 @@ body.all-accounts section.card#earnings { display: block; } #earnings[hidden] { 
   <nav class="nav" aria-label="Pages"><a href="#content" id="nav-content">Content</a><button type="button" class="nav-test">test</button><button type="button" class="nav-test">test</button><button type="button" class="nav-test">test</button></nav>
   <div class="bell" id="bell">
     <button type="button" class="bell-btn" id="bell-btn" aria-label="Notifications" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="bell-dot" id="bell-dot" hidden></span></button>
-    <div class="bell-panel" id="bell-panel" hidden><div class="bell-h">Biggest moment of each update</div><div id="bell-list"></div></div>
+    <div class="bell-panel" id="bell-panel" hidden><div class="bell-h" id="bell-since">Since you last looked</div><div id="bell-list"></div></div>
   </div>
   <div class="refresh" id="refresh" role="status"><span class="pill live" id="r-pill">Checking…</span><span class="r-sub" id="r-sub"></span></div>
   </div>
@@ -645,47 +645,62 @@ async function saveWhop(body) {
   });
 })();
 
-// Notifications: the Worker keeps the biggest change from each 10-minute refresh (src/worker.js moment()).
-let moments = [];
-const seenAt = () => { try { return localStorage.getItem('hq-seen') || ''; } catch { return ''; } };
-// Wide screens: the same moments as a chat-style feed on the right, oldest at the top, newest at the bottom.
-let feedShown = '';
-function drawFeed() {
+// Notifications: everything that moved since the owner last marked the feed as seen. The Worker saves
+// every account's followers and every video's views each refresh ('cur') and keeps the copy from the
+// last "mark as seen" ('seen'), so this is one line per video or account with its total change.
+let feed = { cur: null, seen: null };
+const MILESTONES = [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1e6];
+function changes() {
+  const { cur, seen } = feed;
+  if (!cur || !seen) return [];
+  return Object.entries(cur.nums).flatMap(([key, n]) => {
+    const was = seen.nums[key], m = cur.info[key];
+    if (!m || (was != null && n <= was) || (was == null && m.kind !== 'views')) return [];
+    const crossed = was == null ? null : MILESTONES.filter(x => was < x && n >= x).pop() || null;
+    return [{ ...m, key, gain: was == null ? n : n - was, total: n, isNew: was == null, milestone: crossed }];
+  }).sort((a, b) => (!!b.milestone - !!a.milestone) || ((b.kind === 'followers') - (a.kind === 'followers')) || (b.isNew - a.isNew) || b.gain - a.gain);
+}
+const changeText = (c) => c.isNew ? `new video live, ${fmt(c.total)} views so far`
+  : c.kind === 'followers' ? `+${fmt(c.gain)} follower${c.gain === 1 ? '' : 's'}${c.milestone ? `, hit ${fmt(c.milestone)} 🎉` : ''} (now ${fmt(c.total)})`
+  : `+${fmt(c.gain)} views${c.milestone ? `, passed ${fmt(c.milestone)} 🎉` : ''} (now ${fmt(c.total)})`;
+const sinceText = () => feed.seen ? `Since you last looked, ${when(feed.seen.at)}` : 'Since you last looked';
+async function markSeen() {
+  try { const r = await fetch('/api/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); if (r.ok) { feed = await r.json(); drawBell(); } } catch {}
+}
+function drawFeed(list) {
   const box = document.getElementById('feed-list');
-  if (!moments.length) { box.replaceChildren(el('p', 'note', 'Waiting for the first update…')); return; }
-  const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  box.replaceChildren(...[...moments].reverse().map(m => {
-    const a = el(m.url ? 'a' : 'div', 'chat' + (feedShown && m.at > feedShown ? ' fresh' : '')); if (m.url) { a.href = m.url; a.target = '_blank'; a.rel = 'noopener'; }
-    a.append(el('span', 'ts', new Date(m.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })), el('span', 'who ' + m.platform, `${m.account}:`), document.createTextNode(momentText(m) + (m.title ? ' ' : '')));
-    if (m.title) a.appendChild(el('span', 'ttl', `— ${m.title}`));
+  document.getElementById('feed-since').textContent = sinceText();
+  if (!list.length) { box.replaceChildren(el('p', 'note', feed.cur ? 'Nothing new yet. Changes show up here after the next update.' : 'Waiting for the first update…')); return; }
+  box.replaceChildren(...list.map(c => {
+    const a = el(c.url ? 'a' : 'div', 'chat'); if (c.url) { a.href = c.url; a.target = '_blank'; a.rel = 'noopener'; }
+    a.append(el('span', 'who ' + c.platform, `${c.account}:`), document.createTextNode(changeText(c) + (c.title ? ' ' : '')));
+    if (c.title) a.appendChild(el('span', 'ttl', `— ${c.title}`));
     return a;
   }));
-  feedShown = moments[0].at;
-  if (stick || !box.dataset.ready) { box.scrollTop = box.scrollHeight; box.dataset.ready = '1'; }
 }
-const momentText = (m) => m.kind === 'followers' ? (m.milestone ? `just hit ${fmt(m.milestone)} followers 🎉` : `+${fmt(m.gain)} follower${m.gain === 1 ? '' : 's'} (now ${fmt(m.total)})`)
-  : m.milestone ? `video passed ${fmt(m.milestone)} views 🎉` : `+${fmt(m.gain)} views (now ${fmt(m.total)})`;
 function drawBell() {
-  drawFeed();
-  const seen = seenAt(), fresh = moments.filter(m => m.at > seen).length, dot = document.getElementById('bell-dot');
-  dot.hidden = !fresh; dot.textContent = fresh > 9 ? '9+' : fresh;
-  const list = document.getElementById('bell-list');
-  if (!moments.length) { list.replaceChildren(el('p', 'note', 'Nothing yet. The first moment shows up after the next update or two.')); return; }
-  list.replaceChildren(...moments.map(m => {
-    const a = el('a', 'moment' + (m.at > seen ? ' new' : '')); if (m.url) { a.href = m.url; a.target = '_blank'; a.rel = 'noopener'; }
-    const what = m.kind === 'followers' ? (m.milestone ? `Hit ${fmt(m.milestone)} followers` : `+${fmt(m.gain)} follower${m.gain === 1 ? '' : 's'}`)
-      : m.milestone ? `Passed ${fmt(m.milestone)} views` : `+${fmt(m.gain)} views`;
-    a.appendChild(el('div', 'big', `${what} on ${PLAT[m.platform] || m.platform}`));
-    if (m.title) a.appendChild(el('div', 't', m.title));
-    a.appendChild(el('div', 'm', `${m.account} · now ${fmt(m.total)} ${m.kind} · ${ago(m.at).replace('updated ', '')}`));
+  const list = changes();
+  drawFeed(list);
+  const dot = document.getElementById('bell-dot');
+  dot.hidden = !list.length; dot.textContent = list.length > 9 ? '9+' : list.length;
+  document.getElementById('bell-since').textContent = sinceText();
+  const box = document.getElementById('bell-list');
+  if (!list.length) { box.replaceChildren(el('p', 'note', 'Nothing new since you last looked.')); return; }
+  box.replaceChildren(...list.map(c => {
+    const a = el('a', 'moment new'); if (c.url) { a.href = c.url; a.target = '_blank'; a.rel = 'noopener'; }
+    a.appendChild(el('div', 'big', `${changeText(c)} · ${PLAT[c.platform] || c.platform}`));
+    if (c.title) a.appendChild(el('div', 't', c.title));
+    a.appendChild(el('div', 'm', c.account));
     return a;
   }));
 }
 (() => {
   const b = document.getElementById('bell-btn'), p = document.getElementById('bell-panel');
-  const show = (o) => { p.hidden = !o; b.setAttribute('aria-expanded', String(o)); if (!o && moments[0]) { try { localStorage.setItem('hq-seen', moments[0].at); } catch {} drawBell(); } };
+  // Closing the bell counts as having looked.
+  const show = (o) => { p.hidden = !o; b.setAttribute('aria-expanded', String(o)); if (!o && changes().length) markSeen(); };
   b.addEventListener('click', () => show(p.hidden));
   document.addEventListener('click', (e) => { if (!p.hidden && !e.composedPath().some(n => n.id === 'bell')) show(false); });
+  document.getElementById('feed-seen').addEventListener('click', markSeen);
 })();
 
 // The updater refreshes every 10 minutes after the last update (see .github/workflows/update.yml).
@@ -723,7 +738,7 @@ document.getElementById('acct-list').addEventListener('click', (e) => {
 // official TikTok numbers; the bundled copy is only a last resort.
 const ON_PAGES = location.hostname.endsWith('github.io');
 const local = (f) => fetch(`data/${f}?t=${Date.now()}`, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(f); return r.json(); });
-const localAll = async () => { const [accounts, posts, meta, stories] = await Promise.all(['accounts', 'posts', 'meta', 'stories'].map(f => local(f + '.json').catch(() => null))); return { files: { accounts, posts, meta, stories }, tiktok: null, instagram: null, youtube: null, whop: null, moments: null }; };
+const localAll = async () => { const [accounts, posts, meta, stories] = await Promise.all(['accounts', 'posts', 'meta', 'stories'].map(f => local(f + '.json').catch(() => null))); return { files: { accounts, posts, meta, stories }, tiktok: null, instagram: null, youtube: null, whop: null, feed: null }; };
 const getAll = () => ON_PAGES ? localAll() : fetch('/api/data', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('data'); return r.json(); }).catch(localAll);
 const asset = (path) => ON_PAGES ? path : `https://raw.githubusercontent.com/${REPO}/main/${path}`;
 // Accounts signed in with TikTok get official numbers from the Worker, laid over the public-page ones.
@@ -790,8 +805,8 @@ const flash = () => document.querySelectorAll('.tile .num').forEach(n => { n.cla
 async function load() {
   try {
     const first = !meta.updated_at;
-    const { files: f, tiktok: t, instagram: g, youtube: y, whop: w, moments: mo } = await getAll();
-    if (mo) moments = mo;
+    const { files: f, tiktok: t, instagram: g, youtube: y, whop: w, feed: fd } = await getAll();
+    if (fd) feed = fd;
     drawBell();
     if (!f.accounts || !f.posts || !f.meta) throw new Error('missing data');
     base = { accounts: f.accounts, posts: f.posts }; meta = f.meta; stories = f.stories || stories; if (t) tt = t; if (g) ig = g; if (y) yt = y; if (w) whop = w; merge(); draw();
@@ -802,8 +817,8 @@ async function load() {
 async function check() {
   if (document.hidden) return;
   try {
-    const { files: f, tiktok: t, instagram: g, youtube: y, whop: w, moments: mo } = await getAll();
-    if (mo && (mo[0] || {}).at !== (moments[0] || {}).at) { moments = mo; drawBell(); }
+    const { files: f, tiktok: t, instagram: g, youtube: y, whop: w, feed: fd } = await getAll();
+    if (fd && JSON.stringify([fd.cur?.at, fd.seen?.at]) !== JSON.stringify([feed.cur?.at, feed.seen?.at])) { feed = fd; drawBell(); }
     if (!f.meta || !f.accounts || !f.posts) return;
     if (w && JSON.stringify(w) !== JSON.stringify(whop)) { whop = w; drawEarnings(); }
     const fresh = f.meta.updated_at !== meta.updated_at, ttFresh = t && t.updated_at !== (tt && tt.updated_at), igFresh = g && g.updated_at !== (ig && ig.updated_at), ytFresh = y && y.updated_at !== (yt && yt.updated_at);
