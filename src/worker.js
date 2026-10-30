@@ -413,11 +413,22 @@ async function snapshot(env, t, i, y) {
   await env.HQ.put('cur', JSON.stringify(cur));
   if (!(await env.HQ.get('seen'))) await env.HQ.put('seen', JSON.stringify({ at: cur.at, nums }));
 }
-const feedLoad = async (env) => ({ cur: await env.HQ.get('cur', 'json'), seen: await env.HQ.get('seen', 'json') });
+const feedLoad = async (env) => ({ cur: await env.HQ.get('cur', 'json'), seen: await env.HQ.get('seen', 'json'), canUndo: !!(await env.HQ.get('seenPrev')) });
 async function markSeen(req, env) {
   if (!(req.headers.get('Content-Type') || '').startsWith('application/json')) return text('Expected JSON', 415);
-  const cur = await env.HQ.get('cur', 'json');
-  if (cur) await env.HQ.put('seen', JSON.stringify({ at: cur.at, nums: cur.nums }));
+  // The last cleared point is kept so an accidental "Mark as seen" can be undone.
+  const b = await req.json().catch(() => ({}));
+  if (b.undo) {
+    const prev = await env.HQ.get('seenPrev');
+    if (prev) { await env.HQ.put('seen', prev); await env.HQ.delete('seenPrev'); }
+  } else {
+    const cur = await env.HQ.get('cur', 'json'), old = await env.HQ.get('seen');
+    // A second click with nothing new in between must not replace the point Undo goes back to.
+    if (cur && (!old || JSON.parse(old).at !== cur.at)) {
+      if (old) await env.HQ.put('seenPrev', old);
+      await env.HQ.put('seen', JSON.stringify({ at: cur.at, nums: cur.nums }));
+    }
+  }
   return json(await feedLoad(env));
 }
 
