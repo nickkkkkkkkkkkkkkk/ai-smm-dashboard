@@ -788,7 +788,25 @@ function mergeYt() {
     if (y.status === 'ok') Object.assign(a, { followers: y.followers, as_of: y.as_of, last_update_status: 'ok' });
     else if (y.status === 'error') Object.assign(a, { last_update_status: 'blocked', last_error: y.error });
   });
-  posts.filter(p => plat(p) === 'youtube').forEach(p => { const v = yt.videos[((p.url || '').match(/shorts\/([\w-]+)/) || [])[1]]; if (v) Object.assign(p, { views: v.views, likes: v.likes, comments: v.comments, last_error: null }); });
+  // A signed-in channel's own upload list is the truth: deleted Shorts drop off, and uploads the
+  // updater hasn't listed yet (new, reuploaded or scheduled) are added or fill their planned post.
+  const words = (t) => (t || '').replace(/#\S+/g, ' ').toLowerCase().replace(/[^a-z0-9' ]/g, ' ').split(/\s+/).filter(Boolean).join(' ');
+  const vid = (p) => ((p.url || '').match(/shorts\/([\w-]+)/) || [])[1];
+  yt.accounts.filter(y => y.account && y.status === 'ok').forEach(y => {
+    // Shorts only (3 minutes or less), live or scheduled: old long uploads and private drafts stay off.
+    const mine = Object.entries(yt.videos).filter(([, v]) => v.channel_id === y.id && (v.seconds == null || v.seconds <= 180) && ['live', 'scheduled', undefined].includes(v.status));
+    const key = `youtube:${y.account}`.toLowerCase(), own = (p) => ak(p).toLowerCase() === key;
+    const ids = new Set(mine.map(([id]) => id));
+    posts = posts.filter(p => !own(p) || !vid(p) || ids.has(vid(p)));
+    const known = new Set(posts.filter(own).map(vid).filter(Boolean));
+    mine.filter(([id]) => !known.has(id)).sort((a, b) => a[1].created - b[1].created).forEach(([id, v]) => {
+      const planned = posts.find(p => own(p) && !p.url && words(p.title) && words(v.title).startsWith(words(p.title).slice(0, 30)));
+      const fields = { url: v.url, scheduled_at: new Date(v.created * 1000).toISOString(), status: v.status === 'scheduled' ? 'Scheduled' : 'Live' };
+      if (planned) Object.assign(planned, fields);
+      else posts.push({ platform: 'youtube', account: y.account, post: Math.max(0, ...posts.filter(own).map(p => p.post || 0)) + 1, title: v.title, genre: 'Other', ...fields });
+    });
+  });
+  posts.filter(p => plat(p) === 'youtube').forEach(p => { const v = yt.videos[vid(p)]; if (v) Object.assign(p, { views: v.views, likes: v.likes, comments: v.comments, last_error: null }); });
 }
 // Accounts signed in with Instagram: followers, plus each Reel matched to its planned post by caption.
 function mergeIg() {

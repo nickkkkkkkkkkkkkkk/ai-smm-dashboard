@@ -353,12 +353,22 @@ async function ytSync(env, data) {
       Object.assign(a, { account: c.snippet.customUrl ? (c.snippet.customUrl.startsWith('@') ? c.snippet.customUrl : '@' + c.snippet.customUrl) : c.snippet.title,
         title: c.snippet.title, avatar_url: c.snippet.thumbnails?.default?.url, followers: +c.statistics.subscriberCount || 0,
         views: +c.statistics.viewCount || 0, video_count: +c.statistics.videoCount || 0, status: 'ok', error: undefined, as_of: new Date().toISOString() });
-      // Newest 50 uploads, then their numbers in one call.
-      const items = (await ytCall(`/playlistItems?part=contentDetails&maxResults=50&playlistId=${c.contentDetails.relatedPlaylists.uploads}`, at)).items || [];
-      const ids = items.map(i => i.contentDetails.videoId).join(',');
-      if (ids) for (const v of (await ytCall(`/videos?part=snippet,statistics&id=${ids}`, at)).items || []) {
-        data.videos[v.id] = { channel_id: a.id, url: `https://www.youtube.com/shorts/${v.id}`, title: v.snippet.title, created: Date.parse(v.snippet.publishedAt) / 1000,
-          views: +v.statistics.viewCount || 0, likes: +v.statistics.likeCount || 0, comments: +v.statistics.commentCount || 0 };
+      // Every upload (up to 500), then their numbers 50 at a time.
+      const ids = [];
+      let page = '';
+      do {
+        const r = await ytCall(`/playlistItems?part=contentDetails&maxResults=50&playlistId=${c.contentDetails.relatedPlaylists.uploads}${page ? '&pageToken=' + page : ''}`, at);
+        ids.push(...(r.items || []).map(i => i.contentDetails.videoId));
+        page = r.nextPageToken;
+      } while (page && ids.length < 500);
+      // The uploads list is the truth for this channel: a deleted video drops out, and private ones
+      // with a publish time are scheduled (their post time is publishAt, not the upload time).
+      for (const [id, v] of Object.entries(data.videos)) if (v.channel_id === a.id && !ids.includes(id)) delete data.videos[id];
+      for (let n = 0; n < ids.length; n += 50) for (const v of (await ytCall(`/videos?part=snippet,statistics,status,contentDetails&id=${ids.slice(n, n + 50).join(',')}`, at)).items || []) {
+        const st = v.status || {}, scheduled = st.privacyStatus === 'private' && !!st.publishAt;
+        data.videos[v.id] = { channel_id: a.id, url: `https://www.youtube.com/shorts/${v.id}`, title: v.snippet.title,
+          created: Date.parse(scheduled ? st.publishAt : v.snippet.publishedAt) / 1000, status: scheduled ? 'scheduled' : st.privacyStatus === 'public' ? 'live' : st.privacyStatus,
+          seconds: isoSecs(v.contentDetails?.duration), views: +v.statistics.viewCount || 0, likes: +v.statistics.likeCount || 0, comments: +v.statistics.commentCount || 0 };
       }
     } catch (e) {
       a.status = /token|invalid_grant|auth|credentials/i.test(e.message) ? 'reconnect' : 'error';
@@ -369,6 +379,9 @@ async function ytSync(env, data) {
   await env.HQ.put(YT_KEY, JSON.stringify(data));
   return data;
 }
+
+// 'PT1M5S' -> 65.
+const isoSecs = (d) => { const m = (d || '').match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : null; };
 
 // Google access tokens last an hour; the refresh token is kept and reused.
 async function ytFresh(env, app, id) {
