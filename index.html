@@ -651,6 +651,7 @@ async function saveWhop(body) {
 // every account's followers and every video's views each refresh ('cur') and keeps the copy from the
 // last "mark as seen" ('seen'), so this is one line per video or account with its total change.
 let feed = { cur: null, seen: null };
+const MIN_VIEWS = 30;
 const MILESTONES = [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1e6];
 function changes() {
   const { cur, seen } = feed;
@@ -659,7 +660,10 @@ function changes() {
     const was = seen.nums[key], m = cur.info[key];
     if (!m || (was != null && n <= was) || (was == null && m.kind !== 'views')) return [];
     const crossed = was == null ? null : MILESTONES.filter(x => was < x && n >= x).pop() || null;
-    return [{ ...m, key, gain: was == null ? n : n - was, total: n, isNew: was == null, milestone: crossed }];
+    const gain = was == null ? n : n - was;
+    // nick's rule: a video only shows once it has gained 30+ views since the last clear. Followers always show.
+    if (m.kind === 'views' && gain < MIN_VIEWS) return [];
+    return [{ ...m, key, gain, total: n, isNew: was == null, milestone: crossed }];
   }).sort((a, b) => (!!b.milestone - !!a.milestone) || ((b.kind === 'followers') - (a.kind === 'followers')) || (b.isNew - a.isNew) || b.gain - a.gain);
 }
 const changeText = (c) => c.isNew ? `new video live, ${fmt(c.total)} views so far`
