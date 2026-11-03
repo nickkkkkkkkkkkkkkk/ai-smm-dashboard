@@ -678,11 +678,13 @@ function drawFeed(list) {
     return a;
   }));
 }
+const bellOpened = () => { try { return JSON.parse(localStorage.getItem('hq-bell-opened') || '{}'); } catch { return {}; } };
 function drawBell() {
   const list = changes();
   drawFeed(list);
-  const dot = document.getElementById('bell-dot');
-  dot.hidden = !list.length; dot.textContent = list.length > 9 ? '9+' : list.length;
+  // The badge counts lines that are new or grew since the bell was last opened on this device.
+  const opened = bellOpened(), fresh = list.filter(c => opened[c.key] !== c.total).length, dot = document.getElementById('bell-dot');
+  dot.hidden = !fresh; dot.textContent = fresh > 9 ? '9+' : fresh;
   document.getElementById('bell-since').textContent = sinceText();
   const box = document.getElementById('bell-list');
   if (!list.length) { box.replaceChildren(el('p', 'note', 'Nothing new in the last 24 hours.')); return; }
@@ -696,7 +698,10 @@ function drawBell() {
 }
 (() => {
   const b = document.getElementById('bell-btn'), p = document.getElementById('bell-panel');
-  const show = (o) => { p.hidden = !o; b.setAttribute('aria-expanded', String(o)); };
+  const show = (o) => {
+    p.hidden = !o; b.setAttribute('aria-expanded', String(o));
+    if (o) { try { localStorage.setItem('hq-bell-opened', JSON.stringify(Object.fromEntries(changes().map(c => [c.key, c.total])))); } catch {} drawBell(); }
+  };
   b.addEventListener('click', () => show(p.hidden));
   document.addEventListener('click', (e) => { if (!p.hidden && !e.composedPath().some(n => n.id === 'bell')) show(false); });
 })();
