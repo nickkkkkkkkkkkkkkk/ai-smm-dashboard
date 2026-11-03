@@ -183,7 +183,7 @@ td a { text-decoration: none; font-weight: 500; } td a:hover { text-decoration: 
 .bell-btn:hover { background: var(--panel-2); }
 .bell-dot { position: absolute; top: 6px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--accent-2); color: #fff; font-size: .65rem; font-weight: 700; line-height: 16px; text-align: center; }
 .bell-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; width: min(22rem, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 16px 40px rgb(0 0 0 / .5); padding: 8px; }
-.bell-top { display: flex; align-items: center; gap: 8px; } .bell-undo { margin-left: auto; font: inherit; font-size: .72rem; font-weight: 600; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer; flex: none; } .bell-undo[hidden] { display: none; }
+.bell-top { display: flex; align-items: center; gap: 8px; } .bell-undo { margin-left: auto; font: inherit; font-size: .72rem; font-weight: 600; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer; flex: none; } .bell-undo[hidden] { display: none; } .bell-undo:not([hidden]) + .bell-seen { margin-left: 0; } .bell-seen:disabled { opacity: .4; cursor: default; }
 .bell-h { font-size: .78rem; color: var(--muted); padding: 6px 8px 8px; }
 .moment { display: block; padding: 10px; border-radius: 12px; color: inherit; text-decoration: none; }
 .moment:hover { background: var(--panel-2); } .moment.new { background: rgb(88 101 242 / .12); }
@@ -252,7 +252,7 @@ body.all-accounts section.card#earnings { display: block; } #earnings[hidden] { 
   <nav class="nav" aria-label="Pages"><a href="#content" id="nav-content">Content</a><button type="button" class="nav-test">test</button><button type="button" class="nav-test">test</button><button type="button" class="nav-test">test</button></nav>
   <div class="bell" id="bell">
     <button type="button" class="bell-btn" id="bell-btn" aria-label="Notifications" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="bell-dot" id="bell-dot" hidden></span></button>
-    <div class="bell-panel" id="bell-panel" hidden><div class="bell-top"><div class="bell-h" id="bell-since">Since you last looked</div><button type="button" class="bell-undo" id="bell-undo" hidden>Undo last clear</button></div><div id="bell-list"></div></div>
+    <div class="bell-panel" id="bell-panel" hidden><div class="bell-top"><div class="bell-h" id="bell-since">Since you last looked</div><button type="button" class="bell-undo" id="bell-undo" hidden>Undo</button><button type="button" class="bell-undo bell-seen" id="bell-seen">Mark as seen</button></div><div id="bell-list"></div></div>
   </div>
   <div class="refresh" id="refresh" role="status"><span class="pill live" id="r-pill">Checking…</span><span class="r-sub" id="r-sub"></span></div>
   </div>
@@ -691,7 +691,7 @@ function drawFeed(list) {
 function drawBell() {
   const list = changes();
   drawUndo();
-  document.getElementById('feed-seen').disabled = !list.length;
+  for (const id of ['feed-seen', 'bell-seen']) document.getElementById(id).disabled = !list.length;
   drawFeed(list);
   const dot = document.getElementById('bell-dot');
   dot.hidden = !list.length; dot.textContent = list.length > 9 ? '9+' : list.length;
@@ -708,11 +708,11 @@ function drawBell() {
 }
 (() => {
   const b = document.getElementById('bell-btn'), p = document.getElementById('bell-panel');
-  // Closing the bell counts as having looked.
-  const show = (o) => { p.hidden = !o; b.setAttribute('aria-expanded', String(o)); if (!o && changes().length) markSeen(); };
+  // Closing the bell keeps everything; only its Mark as seen button clears it (nick's call).
+  const show = (o) => { p.hidden = !o; b.setAttribute('aria-expanded', String(o)); };
   b.addEventListener('click', () => show(p.hidden));
   document.addEventListener('click', (e) => { if (!p.hidden && !e.composedPath().some(n => n.id === 'bell')) show(false); });
-  document.getElementById('feed-seen').addEventListener('click', markSeen);
+  for (const id of ['feed-seen', 'bell-seen']) document.getElementById(id).addEventListener('click', (e) => { e.stopPropagation(); markSeen(); });
   for (const id of ['feed-undo', 'bell-undo']) document.getElementById(id).addEventListener('click', (e) => { e.stopPropagation(); markSeen(true); });
 })();
 
