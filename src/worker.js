@@ -34,7 +34,6 @@ export default {
       if (url.pathname === '/auth/youtube/callback') return await ytCallback(req, url, env);
       if (url.pathname === '/api/tiktok') return json(await load(env));
       if (url.pathname === '/api/data') return json({ ...(await repoData()), tiktok: await load(env), instagram: await igLoad(env), youtube: await ytLoad(env), whop: await whopLoad(env), feed: await feedLoad(env) });
-      if (url.pathname === '/api/seen' && req.method === 'POST') return await markSeen(req, env);
       if (url.pathname === '/api/whop' && req.method === 'POST') return await whopSave(req, env);
     } catch (e) {
       return text(`Something went wrong: ${e.message}`, 502);
@@ -410,8 +409,8 @@ async function ytCall(path, accessToken) {
 const ytLoad = async (env) => (await env.HQ.get(YT_KEY, 'json')) || { accounts: [], videos: {}, updated_at: null };
 
 // Notifications: each 10-minute refresh saves every account's followers and every video's views
-// (KV 'cur'). 'seen' is the copy from when the owner last marked the feed as seen (POST /api/seen),
-// so the page can show one line per video with its total change since then.
+// (KV 'cur'), plus an hourly copy kept for 25 hours (KV 'hist'). The page compares 'cur' with the
+// copy from about 24 hours ago, so the feed is a rolling last-24-hours summary that clears itself.
 async function snapshot(env, t, i, y) {
   const nums = {}, info = {};
   const add = (key, n, meta) => { nums[key] = n; info[key] = meta; };
@@ -424,25 +423,15 @@ async function snapshot(env, t, i, y) {
   for (const [id, v] of Object.entries(y.videos)) add(`v:youtube:${id}`, v.views || 0, { kind: 'views', platform: 'youtube', account: who(y, v.channel_id, 'id'), title: clip(v.title), url: v.url });
   const cur = { at: new Date().toISOString(), nums, info };
   await env.HQ.put('cur', JSON.stringify(cur));
-  if (!(await env.HQ.get('seen'))) await env.HQ.put('seen', JSON.stringify({ at: cur.at, nums }));
+  const hist = ((await env.HQ.get('hist', 'json')) || []).filter(h => Date.now() - Date.parse(h.at) < 25 * 3600e3);
+  if (!hist.length || Date.now() - Date.parse(hist[hist.length - 1].at) >= 3600e3) hist.push({ at: cur.at, nums });
+  await env.HQ.put('hist', JSON.stringify(hist));
 }
-const feedLoad = async (env) => ({ cur: await env.HQ.get('cur', 'json'), seen: await env.HQ.get('seen', 'json'), canUndo: !!(await env.HQ.get('seenPrev')) });
-async function markSeen(req, env) {
-  if (!(req.headers.get('Content-Type') || '').startsWith('application/json')) return text('Expected JSON', 415);
-  // The last cleared point is kept so an accidental "Mark as seen" can be undone.
-  const b = await req.json().catch(() => ({}));
-  if (b.undo) {
-    const prev = await env.HQ.get('seenPrev');
-    if (prev) { await env.HQ.put('seen', prev); await env.HQ.delete('seenPrev'); }
-  } else {
-    const cur = await env.HQ.get('cur', 'json'), old = await env.HQ.get('seen');
-    // A second click with nothing new in between must not replace the point Undo goes back to.
-    if (cur && (!old || JSON.parse(old).at !== cur.at)) {
-      if (old) await env.HQ.put('seenPrev', old);
-      await env.HQ.put('seen', JSON.stringify({ at: cur.at, nums: cur.nums }));
-    }
-  }
-  return json(await feedLoad(env));
+// The oldest hourly copy still inside 24 hours (or the oldest there is, early on).
+async function feedLoad(env) {
+  const hist = (await env.HQ.get('hist', 'json')) || [];
+  const seen = hist.find(h => Date.now() - Date.parse(h.at) <= 24 * 3600e3) || hist[0] || null;
+  return { cur: await env.HQ.get('cur', 'json'), seen };
 }
 
 // Whop payouts, logged by hand on the dashboard (Whop has no public earnings feed). KV key 'whop'.
