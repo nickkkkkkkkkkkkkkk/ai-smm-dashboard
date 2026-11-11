@@ -406,7 +406,7 @@ function drawPicker() {
   const pend = loadPending().filter(p => !accounts.some(a => a.account.toLowerCase() === p.handle.toLowerCase() && (a.tracking === 'removed') === (p.action === 'remove')) && Date.now() - p.at < 15 * 60000);
   savePending(pend);
   list.replaceChildren(...item(ALL, null, 'All accounts', `${tracked().length} tracked`, '', false),
-    ...tracked().flatMap(a => { const bad = a.connected === 'reconnect' || (a.last_update_status && !['ok', 'pending'].includes(a.last_update_status)); return item(ak(a), a, a.account, PLAT[plat(a)] + (a.open_id || a.yt_id || (plat(a) === 'instagram' && igOn(a)) ? ' · signed in' : ''), !hasStats(a) ? 'schedule only' : a.connected === 'reconnect' ? 'sign in again' : bad ? "couldn't read" : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
+    ...tracked().flatMap(a => { const bad = a.connected === 'reconnect' || (a.last_update_status && !['ok', 'pending'].includes(a.last_update_status)); return item(ak(a), a, a.account, PLAT[plat(a)] + (a.open_id || a.yt_id || (plat(a) === 'instagram' && igOn(a)) ? ' · signed in' : ''), !hasStats(a) ? 'schedule only' : a.connected === 'reconnect' ? 'sign in again' : bad ? "couldn't read" : plat(a) === 'instagram' && a.media_count === 0 ? 'no posts yet' : a.as_of ? ago(a.as_of) : 'loading stats…', bad); }),
     ...pend.map(p => el('div', 'pending', `${p.action === 'add' ? 'Adding' : p.action === 'remove' ? 'Removing' : 'Restoring'} ${p.handle}… shows here about a minute after you submit on GitHub`)));
   const removed = accounts.filter(a => a.tracking === 'removed'), rbox = document.getElementById('acct-removed');
   rbox.replaceChildren(...(removed.length ? [el('div', 'acct-removed-h', 'Removed accounts')] : []), ...removed.map(a => { const tt = plat(a) === 'tiktok'; const r = el('a', 'acct-restore', tt ? `Restore ${a.account} (sign in with TikTok)` : `Restore ${label(a)}`); r.href = tt ? '/auth/tiktok/start' : issueUrl('restore', a.account, '', plat(a)); if (!tt) { r.target = '_blank'; r.rel = 'noopener'; } return r; }));
@@ -809,7 +809,7 @@ function mergeIg() {
   ig.accounts.filter(i => i.account).forEach(i => {
     let a = accounts.find(x => plat(x) === 'instagram' && x.account.toLowerCase() === i.account.toLowerCase());
     if (!a) { a = { platform: 'instagram', account: i.account, niche: '', tracking: 'active' }; accounts.push(a); }
-    Object.assign(a, { avatar_url: i.avatar_url, connected: i.status });
+    Object.assign(a, { avatar_url: i.avatar_url, connected: i.status, media_count: i.media_count });
     if (i.status === 'ok') Object.assign(a, { followers: i.followers, following: i.following, as_of: i.as_of, last_update_status: 'ok' });
     else if (i.status === 'error') Object.assign(a, { last_update_status: 'blocked', last_error: i.error });
     const used = new Set();
