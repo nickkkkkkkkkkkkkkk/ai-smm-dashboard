@@ -41,7 +41,9 @@ export default {
     return text('Not found', 404);
   },
   async scheduled(_event, env) {
-    const t = await sync(env), i = await igSync(env), y = await ytSync(env);
+    // Free Workers allow 50 outbound requests per run: TikTok and YouTube need only a few each, so they
+    // go first, and Instagram (one request per Reel for views) gets a capped share after them.
+    const t = await sync(env), y = await ytSync(env), i = await igSync(env);
     await snapshot(env, t, i, y);
   },
 };
@@ -235,6 +237,7 @@ async function igCallback(req, url, env) {
 
 async function igSync(env, data) {
   data ||= await igLoad(env);
+  let budget = 24;
   for (const a of data.accounts) {
     try {
       const tok = await igFresh(env, a.id);
@@ -243,11 +246,16 @@ async function igSync(env, data) {
       Object.assign(a, { account: '@' + u.username, avatar_url: u.profile_picture_url, followers: u.followers_count, following: u.follows_count,
         media_count: u.media_count, status: 'ok', error: undefined, as_of: new Date().toISOString() });
       const media = await igCall(`${IG_GRAPH}/me/media?fields=id,caption,media_product_type,permalink,timestamp,like_count,comments_count&limit=50&${auth}`);
-      for (const m of media.data || []) {
-        // Views are an insight, not a field; a failed insight read keeps the last number.
+      for (const m of media.data || []) data.videos[m.id] = { ...(data.videos[m.id] || {}), ig_id: a.id, url: m.permalink, title: m.caption || '',
+        created: Date.parse(m.timestamp) / 1000, likes: m.like_count || 0, comments: m.comments_count || 0 };
+      // Views are an insight, one request per Reel, so each run reads only the Reels read longest ago
+      // (never-read first) within the shared budget; every Reel still refreshes every few runs.
+      // A failed insight read keeps the last number.
+      const due = (media.data || []).sort((x, z) => (data.videos[x.id].views_at || 0) - (data.videos[z.id].views_at || 0)).slice(0, budget);
+      budget -= due.length;
+      for (const m of due) {
         const views = await igCall(`${IG_GRAPH}/${m.id}/insights?metric=views&${auth}`).then(r => r.data?.[0]?.values?.[0]?.value).catch(() => undefined);
-        data.videos[m.id] = { ...(data.videos[m.id] || {}), ig_id: a.id, url: m.permalink, title: m.caption || '', created: Date.parse(m.timestamp) / 1000,
-          likes: m.like_count || 0, comments: m.comments_count || 0, ...(views != null ? { views } : {}) };
+        if (views != null) Object.assign(data.videos[m.id], { views, views_at: Date.now() });
       }
     } catch (e) {
       a.status = /token|oauth|session|permission/i.test(e.message) ? 'reconnect' : 'error';
