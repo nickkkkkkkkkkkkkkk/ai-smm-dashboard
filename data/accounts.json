@@ -8,7 +8,7 @@
     "followers": 4,
     "following": 3,
     "profile_likes": 588,
-    "as_of": "2026-11-20T16:05:32Z",
+    "as_of": "2026-11-20T16:16:10Z",
     "avatar": "data/avatars/nickblox40.jpg",
     "schedule": [
       "2026-10-26T12:00:00-04:00",
@@ -66,11 +66,11 @@
     "account": "@nickblox40",
     "niche": "Roblox story time",
     "tracking": "active",
-    "last_update_status": "blocked",
+    "last_update_status": "ok",
     "followers": 92,
     "following": 0,
     "profile_likes": 0,
-    "as_of": "2026-11-20T15:55:22Z",
+    "as_of": "2026-11-20T16:16:10Z",
     "avatar": "data/avatars/nickblox40-youtube.jpg",
     "channel_id": "UCNu7d42TPKl1kAoEAoEAFYQ",
     "schedule": [
@@ -122,8 +122,7 @@
       "2026-11-10T12:00:00-05:00",
       "2026-11-10T16:00:00-05:00",
       "2026-11-10T19:00:00-05:00"
-    ],
-    "last_error": "HTTPSConnectionPool(host='www.youtube.com', port=443): Read timed out. (read timeout=30)"
+    ]
   },
   {
     "platform": "instagram",
@@ -196,7 +195,7 @@
     "followers": 7,
     "following": 0,
     "profile_likes": 0,
-    "as_of": "2026-11-20T16:05:32Z",
+    "as_of": "2026-11-20T16:16:10Z",
     "avatar": "data/avatars/nickclippedx-youtube.jpg",
     "campaign": {
       "name": "DiegoLoveless (Marvel Rivals)",
