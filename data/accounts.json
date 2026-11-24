@@ -4,7 +4,7 @@
     "account": "@nickblox40",
     "niche": "Roblox story time",
     "tracking": "active",
-    "last_update_status": "ok",
+    "last_update_status": "blocked",
     "followers": 4,
     "following": 3,
     "profile_likes": 589,
@@ -59,7 +59,8 @@
       "2026-11-10T12:00:00-05:00",
       "2026-11-10T16:00:00-05:00",
       "2026-11-10T19:00:00-05:00"
-    ]
+    ],
+    "last_error": "HTTPSConnectionPool(host='www.tiktok.com', port=443): Max retries exceeded with url: /@nickblox40 (Caused by SSLError(SSLError(1, '[SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:"
   },
   {
     "platform": "youtube",
@@ -70,7 +71,7 @@
     "followers": 106,
     "following": 0,
     "profile_likes": 0,
-    "as_of": "2026-11-24T02:07:18Z",
+    "as_of": "2026-11-24T02:17:27Z",
     "avatar": "data/avatars/nickblox40-youtube.jpg",
     "channel_id": "UCNu7d42TPKl1kAoEAoEAFYQ",
     "schedule": [
@@ -195,7 +196,7 @@
     "followers": 15,
     "following": 0,
     "profile_likes": 0,
-    "as_of": "2026-11-24T02:07:18Z",
+    "as_of": "2026-11-24T02:17:27Z",
     "avatar": "data/avatars/nickclippedx-youtube.jpg",
     "campaign": {
       "name": "DiegoLoveless (Marvel Rivals)",
